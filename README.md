@@ -34,3 +34,8 @@ LungCancerDetection/
 <p><strong>View (GUI):</strong> src/gui. Soha nem végez számítást. Csak megjelenít és gombnyomást továbbít.</p>
 <p><strong>ViewModel:</strong> Ez köti össze a GUI-t az logikával. Itt lesznek a parancsok (pl. start_processing_command). Ez kezeli a Dask/Thread logikát, hogy a GUI ne fagyjon le.</p>
 <p><strong>Model (Core):</strong> src/core. Itt vannak a tiszta Python osztályok (DICOM kezelés, szegmentálás), amik semmit nem tudnak a GUI-ról. Így tesztelhetővé válnak.</p>
+
+#### Install
+```bash
+pip install PyQt6 PyQt6-Fluent-Widgets
+```
