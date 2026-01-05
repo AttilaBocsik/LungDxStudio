@@ -1,0 +1,25 @@
+<annotation verified="no">
+  <folder>Unknow</folder>
+  <filename>Unknow</filename>
+  <path>Unknow</path>
+  <source>Unknow<database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>1</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>E</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>271</xmin>
+      <ymin>239</ymin>
+      <xmax>388</xmax>
+      <ymax>333</ymax>
+    </bndbox>
+  </object>
+</annotation>

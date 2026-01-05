@@ -1,0 +1,26 @@
+<annotation verified="no">
+  <folder>A0149</folder>
+  <filename>1.2.840.113619.2.55.3.2831194371.152.1572826531.833.41</filename>
+  <path>C:\Users\72761\Desktop\submission\JPG\A0149\1.2.840.113619.2.55.3.2831194371.152.1572826531.833.41.png</path>
+  <source>
+    <database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>1</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>A</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>103</xmin>
+      <ymin>254</ymin>
+      <xmax>192</xmax>
+      <ymax>405</ymax>
+    </bndbox>
+  </object>
+</annotation>

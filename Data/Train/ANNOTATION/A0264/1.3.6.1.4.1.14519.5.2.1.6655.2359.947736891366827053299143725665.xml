@@ -1,0 +1,26 @@
+<annotation verified="no">
+  <folder>A0264</folder>
+  <filename>1.3.12.2.1107.5.99.2.22633.30000019120603111318500002038</filename>
+  <path>C:\Users\ChenHao\Desktop\A0264\1.3.12.2.1107.5.99.2.22633.30000019120603111318500002038.png</path>
+  <source>
+    <database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>3</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>a</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>133</xmin>
+      <ymin>281</ymin>
+      <xmax>214</xmax>
+      <ymax>381</ymax>
+    </bndbox>
+  </object>
+</annotation>

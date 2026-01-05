@@ -1,0 +1,26 @@
+<annotation verified="no">
+  <folder>PT191012002(&#39532;&#30456;&#27494;)</folder>
+  <filename>1.3.12.2.1107.5.1.4.59004.30000019101201324314000008353</filename>
+  <path>D:\&#39532;&#30456;&#27494;\PT191012002(&#39532;&#30456;&#27494;)\1.3.12.2.1107.5.1.4.59004.30000019101201324314000008353.png</path>
+  <source>
+    <database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>1</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>G</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>178</xmin>
+      <ymin>249</ymin>
+      <xmax>212</xmax>
+      <ymax>296</ymax>
+    </bndbox>
+  </object>
+</annotation>

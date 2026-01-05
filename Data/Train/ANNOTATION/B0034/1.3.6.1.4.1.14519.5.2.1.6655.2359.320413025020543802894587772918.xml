@@ -1,0 +1,26 @@
+<annotation verified="no">
+  <folder>B0034</folder>
+  <filename>1.3.12.2.1107.5.1.4.59004.30000018041901595827300003852</filename>
+  <path>C:\Users\ChenHao\Desktop\B0034\1.3.12.2.1107.5.1.4.59004.30000018041901595827300003852.png</path>
+  <source>
+    <database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>1</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>b</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>311</xmin>
+      <ymin>287</ymin>
+      <xmax>346</xmax>
+      <ymax>333</ymax>
+    </bndbox>
+  </object>
+</annotation>

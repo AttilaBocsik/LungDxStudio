@@ -1,0 +1,26 @@
+<annotation verified="no">
+  <folder>G0051</folder>
+  <filename>1.3.12.2.1107.5.1.4.59004.30000019042301413254500008001</filename>
+  <path>F:\submission\JPG\G0051\1.3.12.2.1107.5.1.4.59004.30000019042301413254500008001.png</path>
+  <source>
+    <database>Unknown</database>
+  </source>
+  <size>
+    <width>512</width>
+    <height>512</height>
+    <depth>1</depth>
+  </size>
+  <segmented>0</segmented>
+  <object>
+    <name>G</name>
+    <pose>Unspecified</pose>
+    <truncated>0</truncated>
+    <Difficult>0</Difficult>
+    <bndbox>
+      <xmin>164</xmin>
+      <ymin>251</ymin>
+      <xmax>208</xmax>
+      <ymax>303</ymax>
+    </bndbox>
+  </object>
+</annotation>
