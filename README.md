@@ -39,3 +39,7 @@ LungCancerDetection/
 ```bash
 pip install PyQt6 PyQt6-Fluent-Widgets
 ```
+
+### CT információk
+- SliceThickness: Megmutatja a vertikális felbontást.
+- PixelSpacing: Megmutatja, mekkora területet fed le egyetlen pixel a valóságban (pl. 0.7mm x 0.7mm).

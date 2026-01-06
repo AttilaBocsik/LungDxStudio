@@ -36,28 +36,32 @@ class BatchWorker(QThread):
 
     def run(self):
         total = len(self.valid_pairs)
-        self.log_signal.emit(f"🚀 Betanítási adatok előkészítése: {total} eset...")
+        self.log_signal.emit(f"🚀 Adatfeldolgozás indítása: {total} eset...")
+        self.write_to_file(f"FUTTATÁS INDÍTÁSA - Összesen {total} fájl")
 
         for i, (d_path, x_path) in enumerate(self.valid_pairs):
             try:
                 ds = pydicom.dcmread(d_path)
 
-                # Metaadatok kinyerése
-                p_id = ds.PatientID if 'PatientID' in ds else "N/A"
+                # --- Metaadatok kinyerése a betanításhoz ---
+                p_id = ds.PatientID if 'PatientID' in ds else "Ismeretlen"
+                # Szeletvastagság (Slice Thickness)
                 thickness = ds.SliceThickness if 'SliceThickness' in ds else 0.0
+                # Pixel távolság (Pixel Spacing) - általában [x, y] lista
                 spacing = ds.PixelSpacing if 'PixelSpacing' in ds else [0.0, 0.0]
 
-                # Szegmentálás
+                # Szegmentálás futtatása
                 mask = self.segmenter.segment_mask(ds.pixel_array)
                 px_count = np.sum(mask > 0)
 
                 status = "✅ OK" if px_count > 0 else "⚠️ ÜRES"
 
-                # Kibővített log: ID | Szeletvastagság | Pixelméret | Státusz | Pixel
+                # Log üzenet összeállítása
                 log_msg = (f"[{i + 1}/{total}] {d_path.name} | ID: {p_id} | "
-                           f"Szelet: {thickness}mm | Pixel: {spacing[0]:.2f}mm | "
+                           f"Thick: {thickness}mm | Spacing: {spacing[0]:.2f}mm | "
                            f"{status} ({px_count} px)")
 
+                # Küldés a GUI-nak és mentés fájlba
                 self.log_signal.emit(log_msg)
                 self.write_to_file(log_msg)
 
@@ -66,9 +70,11 @@ class BatchWorker(QThread):
                 self.log_signal.emit(err_msg)
                 self.write_to_file(err_msg)
 
+            # Progress bar frissítése
             self.progress_signal.emit(int(((i + 1) / total) * 100))
 
-        self.log_signal.emit("✨ Előkészítés kész. A metaadatok rögzítve a logged.txt-ben.")
+        self.log_signal.emit("✨ Feldolgozási folyamat befejeződött.")
+        self.write_to_file("FELDOLGOZÁS VÉGE\n" + "=" * 60)
         self.finished.emit()
 
 
