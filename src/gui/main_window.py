@@ -1,154 +1,172 @@
-# src/gui/main_window.py
 import sys
-from pathlib import Path
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QVBoxLayout, QFileDialog
-from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme, ListWidget,
-                            PrimaryPushButton, CardWidget, CaptionLabel, ImageLabel,
-                            PushButton, FluentIcon)
+import os
+import time
+import numpy as np
+import pydicom
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QFrame, QVBoxLayout, QHBoxLayout, QFileDialog, QTextEdit
+from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme,
+                            PrimaryPushButton, CardWidget, PushButton, FluentIcon, ProgressBar)
 
+# Saját modulok importálása (Ellenőrizd az elérési utat!)
 from src.core.data_manager import DataManager
+from src.core.segmentation.lung_segmenter import LungSegmenter
 from src.utils.logger import setup_logger
 
-log = setup_logger("GUI")
+log = setup_logger("Processor")
 
 
-class MainWindow(MSFluentWindow):
-    def __init__(self):
+class BatchWorker(QThread):
+    """Végigmegy az összes páron, szegmentál és logol."""
+    log_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)
+    finished = pyqtSignal()
+
+    def __init__(self, valid_pairs, segmenter):
         super().__init__()
-        self.init_window()
+        self.valid_pairs = valid_pairs
+        self.segmenter = segmenter
+        self.log_file = 'logged.txt'
 
-        # Kezdetben nincs adatkezelő, amíg nincs mappa választva
-        self.data_manager = None
+    def write_to_file(self, message):
+        """Időbélyeggel ellátott log mentése a fájlba."""
+        timestamp = time.strftime("%Y.%m.%d %H:%M:%S")
+        with open(self.log_file, 'a', encoding='utf-8') as f:
+            f.write(f"[{timestamp}] {message}\n")
 
-        self.dashboard_interface = DashboardInterface(self)
-        self.addSubInterface(self.dashboard_interface, FluentIcon.HOME, 'Elemzés')
+    def run(self):
+        total = len(self.valid_pairs)
+        self.log_signal.emit(f"🚀 Betanítási adatok előkészítése: {total} eset...")
 
-        setTheme(Theme.DARK)
+        for i, (d_path, x_path) in enumerate(self.valid_pairs):
+            try:
+                ds = pydicom.dcmread(d_path)
 
-    def init_window(self):
-        self.resize(1100, 750)
-        self.setWindowTitle('Lung Cancer Detection System - AI Enterprise')
+                # Metaadatok kinyerése
+                p_id = ds.PatientID if 'PatientID' in ds else "N/A"
+                thickness = ds.SliceThickness if 'SliceThickness' in ds else 0.0
+                spacing = ds.PixelSpacing if 'PixelSpacing' in ds else [0.0, 0.0]
+
+                # Szegmentálás
+                mask = self.segmenter.segment_mask(ds.pixel_array)
+                px_count = np.sum(mask > 0)
+
+                status = "✅ OK" if px_count > 0 else "⚠️ ÜRES"
+
+                # Kibővített log: ID | Szeletvastagság | Pixelméret | Státusz | Pixel
+                log_msg = (f"[{i + 1}/{total}] {d_path.name} | ID: {p_id} | "
+                           f"Szelet: {thickness}mm | Pixel: {spacing[0]:.2f}mm | "
+                           f"{status} ({px_count} px)")
+
+                self.log_signal.emit(log_msg)
+                self.write_to_file(log_msg)
+
+            except Exception as e:
+                err_msg = f"❌ HIBA ({d_path.name}): {str(e)}"
+                self.log_signal.emit(err_msg)
+                self.write_to_file(err_msg)
+
+            self.progress_signal.emit(int(((i + 1) / total) * 100))
+
+        self.log_signal.emit("✨ Előkészítés kész. A metaadatok rögzítve a logged.txt-ben.")
+        self.finished.emit()
 
 
 class DashboardInterface(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.setObjectName("Dashboard")
+        self.setObjectName("processor_interface")
+        self.segmenter = LungSegmenter()
+        self.dicom_dir = None
+        self.xml_dir = None
 
-        self.dicom_path = None
-        self.xml_path = None
+        self.layout = QVBoxLayout(self)
+        self._init_ui()
 
-        # Fő elrendezés
-        self.h_layout = QHBoxLayout(self)
-        self.left_layout = QVBoxLayout()
-        self.right_layout = QVBoxLayout()
+    def _init_ui(self):
+        # Vezérlő kártya
+        self.top_card = CardWidget(self)
+        h_ly = QHBoxLayout(self.top_card)
 
-        # --- FELSŐ RÉSZ: Tallózó gombok ---
-        self.setup_browser_section()
+        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM mappa")
+        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML mappa")
+        self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "Batch Indítása")
+        self.run_btn.setEnabled(False)
 
-        # --- KÖZÉPSŐ RÉSZ: Lista ---
-        self.list_label = SubtitleLabel("Elérhető felvételek", self)
-        self.list_widget = ListWidget(self)
-        self.list_widget.itemSelectionChanged.connect(self.on_item_selected)
+        h_ly.addWidget(self.dicom_btn)
+        h_ly.addWidget(self.xml_btn)
+        h_ly.addStretch(1)
+        h_ly.addWidget(self.run_btn)
+        self.layout.addWidget(self.top_card)
 
-        self.left_layout.addWidget(self.list_label)
-        self.left_layout.addWidget(self.list_widget)
+        # Progress bar
+        self.progress_bar = ProgressBar(self)
+        self.layout.addWidget(self.progress_bar)
 
-        # --- JOBB OLDAL: Megjelenítő ---
-        self.setup_display_section()
+        # Terminál log
+        self.log_display = QTextEdit()
+        self.log_display.setReadOnly(True)
+        self.log_display.setStyleSheet("""
+            QTextEdit {
+                background-color: #000000;
+                color: #00FF00;
+                font-family: 'Consolas', monospace;
+                font-size: 11px;
+            }
+        """)
+        self.layout.addWidget(SubtitleLabel("Rendszernapló (logged.txt)"))
+        self.layout.addWidget(self.log_display)
 
-        self.h_layout.addLayout(self.left_layout, 1)
-        self.h_layout.addLayout(self.right_layout, 3)
+        # Eseménykezelők
+        self.dicom_btn.clicked.connect(self.select_dicom)
+        self.xml_btn.clicked.connect(self.select_xml)
+        self.run_btn.clicked.connect(self.start_batch)
 
-    def setup_browser_section(self):
-        """Létrehozza a mappa tallózó részt."""
-        self.browser_card = CardWidget(self)
-        browser_layout = QVBoxLayout(self.browser_card)
+    def select_dicom(self):
+        p = QFileDialog.getExistingDirectory(self, "DICOM mappa")
+        if p:
+            self.dicom_dir = p
+            self.log_display.append(f"📁 DICOM set: {p}")
+            self.check_ready()
 
-        # DICOM gomb
-        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM mappa kiválasztása", self)
-        self.dicom_btn.clicked.connect(self.select_dicom_folder)
+    def select_xml(self):
+        p = QFileDialog.getExistingDirectory(self, "XML mappa")
+        if p:
+            self.xml_dir = p
+            self.log_display.append(f"📝 XML set: {p}")
+            self.check_ready()
 
-        # XML gomb
-        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML mappa kiválasztása", self)
-        self.xml_btn.clicked.connect(self.select_xml_folder)
+    def check_ready(self):
+        if self.dicom_dir and self.xml_dir:
+            self.mgr = DataManager(self.dicom_dir, self.xml_dir)
+            self.mgr.index_files()
+            count = len(self.mgr.valid_pairs)
+            self.log_display.append(f"🔍 Talált érvényes párok: {count}")
+            if count > 0: self.run_btn.setEnabled(True)
 
-        self.path_status_label = CaptionLabel("Nincs mappa kiválasztva")
+    def start_batch(self):
+        self.run_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
 
-        browser_layout.addWidget(self.dicom_btn)
-        browser_layout.addWidget(self.xml_btn)
-        browser_layout.addWidget(self.path_status_label)
+        # Kezdő log mentése
+        with open('logged.txt', 'a', encoding='utf-8') as f:
+            f.write(f"\n{'=' * 10} ÚJ FUTTATÁS: {time.ctime()} {'=' * 10}\n")
 
-        self.left_layout.addWidget(self.browser_card)
+        self.worker = BatchWorker(self.mgr.valid_pairs, self.segmenter)
+        self.worker.log_signal.connect(self.log_display.append)
+        self.worker.progress_signal.connect(self.progress_bar.setValue)
+        self.worker.finished.connect(lambda: self.run_btn.setEnabled(True))
+        self.worker.start()
 
-    def setup_display_section(self):
-        self.image_card = CardWidget(self)
-        card_layout = QVBoxLayout(self.image_card)
 
-        self.image_display = ImageLabel(self)
-        self.image_display.setFixedSize(512, 512)
-        self.image_display.setBorderRadius(8, 8, 8, 8)
-
-        self.info_label = CaptionLabel("Válassz mappákat az induláshoz...")
-        self.process_btn = PrimaryPushButton("Analízis indítása")
-        self.process_btn.setEnabled(False)
-
-        card_layout.addWidget(self.image_display, 0, Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(self.info_label)
-        card_layout.addWidget(self.process_btn)
-
-        self.right_layout.addWidget(self.image_card)
-
-    def select_dicom_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "DICOM mappa kiválasztása")
-        if folder:
-            self.dicom_path = folder
-            self.update_init_status()
-
-    def select_xml_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "XML mappa kiválasztása")
-        if folder:
-            self.xml_path = folder
-            self.update_init_status()
-
-    def update_init_status(self):
-        """Ellenőrzi, hogy mindkét mappa megvan-e, és ha igen, indexel."""
-        if self.dicom_path and self.xml_path:
-            self.path_status_label.setText(f"Mappák rendben. Indexelés...")
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-
-            try:
-                # Most példányosítjuk a DataManagert
-                self.data_manager = DataManager(self.dicom_path, self.xml_path)
-                self.data_manager.index_files()
-
-                # Lista frissítése
-                self.list_widget.clear()
-                for pair in self.data_manager.valid_pairs:
-                    self.list_widget.addItem(pair[0].name)
-
-                self.path_status_label.setText(f"Talált párok: {len(self.data_manager.valid_pairs)}")
-                self.info_label.setText("Adatok betöltve. Válassz egyet a listából!")
-            except Exception as e:
-                log.error(f"Hiba az indexeléskor: {e}")
-                self.path_status_label.setText("Hiba történt az indexelés során!")
-
-            QApplication.restoreOverrideCursor()
-        elif self.dicom_path:
-            self.path_status_label.setText("Válaszd ki az XML mappát is!")
-        elif self.xml_path:
-            self.path_status_label.setText("Válaszd ki a DICOM mappát is!")
-
-    def on_item_selected(self):
-        if not hasattr(self, 'data_manager') or self.list_widget.currentRow() < 0:
-            return
-
-        selected_idx = self.list_widget.currentRow()
-        dicom_path, xml_path = self.data_manager.valid_pairs[selected_idx]
-
-        self.info_label.setText(f"Kiválasztva: {dicom_path.name}\nAnnotáció: {xml_path.name}")
-        self.process_btn.setEnabled(True)
+class MainWindow(MSFluentWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("LungDx Processor v3.0")
+        self.resize(800, 600)
+        self.dashboard = DashboardInterface(self)
+        self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Feldolgozás')
+        setTheme(Theme.DARK)
 
 
 if __name__ == '__main__':
