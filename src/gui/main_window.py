@@ -34,6 +34,8 @@ class BatchWorker(QThread):
         with open(self.log_file, 'a', encoding='utf-8') as f:
             f.write(f"[{timestamp}] {message}\n")
 
+    # A main_window.py elején a importok maradnak, csak a BatchWorker.run változik:
+
     def run(self):
         total = len(self.valid_pairs)
         self.log_signal.emit(f"🚀 Adatfeldolgozás indítása: {total} eset...")
@@ -41,27 +43,29 @@ class BatchWorker(QThread):
 
         for i, (d_path, x_path) in enumerate(self.valid_pairs):
             try:
-                ds = pydicom.dcmread(d_path)
+                # --- ITT HÍVJUK AZ ÚJ BETÖLTŐT ---
+                # Ez a sor helyettesíti a sima pydicom.dcmread-et
+                ds, img_sitk, img_array, frame_num, width, height, ch = self.segmenter.load_file(d_path)
 
-                # --- Metaadatok kinyerése a betanításhoz ---
+                # Metaadatok kinyerése a betanításhoz (DS objektumból)
                 p_id = ds.PatientID if 'PatientID' in ds else "Ismeretlen"
-                # Szeletvastagság (Slice Thickness)
                 thickness = ds.SliceThickness if 'SliceThickness' in ds else 0.0
-                # Pixel távolság (Pixel Spacing) - általában [x, y] lista
                 spacing = ds.PixelSpacing if 'PixelSpacing' in ds else [0.0, 0.0]
 
-                # Szegmentálás futtatása
-                mask = self.segmenter.segment_mask(ds.pixel_array)
+                # Szegmentálás futtatása (a kinyert numpy tömbbel)
+                mask = self.segmenter.segment_mask(img_array)
                 px_count = np.sum(mask > 0)
 
                 status = "✅ OK" if px_count > 0 else "⚠️ ÜRES"
 
-                # Log üzenet összeállítása
+                # Log üzenet: Most már tartalmazza a Dimenzókat is (width x height)
                 log_msg = (f"[{i + 1}/{total}] {d_path.name} | ID: {p_id} | "
-                           f"Thick: {thickness}mm | Spacing: {spacing[0]:.2f}mm | "
+                           f"Dim: {width}x{height} | Spacing: {spacing[0]:.2f}mm | "
                            f"{status} ({px_count} px)")
 
-                # Küldés a GUI-nak és mentés fájlba
+                # Adatok ideiglenes tárolása (ha kellene később)
+                # Itt a ciklus végén a változók felszabadulnak, így nem eszi meg a RAM-ot
+
                 self.log_signal.emit(log_msg)
                 self.write_to_file(log_msg)
 
