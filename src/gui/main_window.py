@@ -1,106 +1,115 @@
 import sys
 import os
-import time
-import numpy as np
 import pydicom
+import time
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QFrame, QVBoxLayout, QHBoxLayout, QFileDialog, QTextEdit
 from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme,
                             PrimaryPushButton, CardWidget, PushButton, FluentIcon, ProgressBar)
 
-# Saját modulok importálása (Ellenőrizd az elérési utat!)
+# Saját modulok importálása
 from src.core.data_manager import DataManager
 from src.core.segmentation.lung_segmenter import LungSegmenter
-from src.utils.logger import setup_logger
-
-log = setup_logger("Processor")
+from src.core.data_prep.annotation_parser import AnnotationParser
 
 
 class BatchWorker(QThread):
-    """Végigmegy az összes páron, szegmentál és logol."""
+    """
+    Memóriakímélő indexelő: Csak a metaadatokat olvassa be.
+    """
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
+    data_ready_signal = pyqtSignal(dict)
     finished = pyqtSignal()
 
-    def __init__(self, valid_pairs, segmenter):
+    def __init__(self, valid_pairs):
         super().__init__()
         self.valid_pairs = valid_pairs
-        self.segmenter = segmenter
-        self.log_file = 'logged.txt'
+        self.patient_store = {}
+        self.log_file = "app.log"
 
-    def write_to_file(self, message):
-        """Időbélyeggel ellátott log mentése a fájlba."""
-        timestamp = time.strftime("%Y.%m.%d %H:%M:%S")
-        with open(self.log_file, 'a', encoding='utf-8') as f:
+    def write_to_log_file(self, message):
+        """Időbélyeggel ellátott üzenet írása az app.log fájlba."""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {message}\n")
-
-    # A main_window.py elején a importok maradnak, csak a BatchWorker.run változik:
 
     def run(self):
         total = len(self.valid_pairs)
-        self.log_signal.emit(f"🚀 Adatfeldolgozás indítása: {total} eset...")
-        self.write_to_file(f"FUTTATÁS INDÍTÁSA - Összesen {total} fájl")
+        msg = f"🚀 Metaadatok és Annotációk indexelése {total} szelethez..."
+        self.log_signal.emit(msg)
+        self.write_to_log_file(msg)
 
         for i, (d_path, x_path) in enumerate(self.valid_pairs):
             try:
-                # --- ITT HÍVJUK AZ ÚJ BETÖLTŐT ---
-                # Ez a sor helyettesíti a sima pydicom.dcmread-et
-                ds, img_sitk, img_array, frame_num, width, height, ch = self.segmenter.load_file(d_path)
+                # 1. DICOM Metaadatok (Lazy Loading)
+                ds_meta = pydicom.dcmread(str(d_path), stop_before_pixels=True)
+                p_id = ds_meta.PatientID if 'PatientID' in ds_meta else "Ismeretlen"
 
-                # Metaadatok kinyerése a betanításhoz (DS objektumból)
-                p_id = ds.PatientID if 'PatientID' in ds else "Ismeretlen"
-                thickness = ds.SliceThickness if 'SliceThickness' in ds else 0.0
-                spacing = ds.PixelSpacing if 'PixelSpacing' in ds else [0.0, 0.0]
+                # 2. XML Annotációk kinyerése (Pascal VOC)
+                # Itt használjuk az új AnnotationParser-t
+                annotations = AnnotationParser.parse_voc_xml(str(x_path))
 
-                # Szegmentálás futtatása (a kinyert numpy tömbbel)
-                mask = self.segmenter.segment_mask(img_array)
-                px_count = np.sum(mask > 0)
+                # 3. Adatcsomag összeállítása
+                slice_meta = {
+                    "patient_id": p_id,
+                    "img_name": os.path.basename(d_path),
+                    "path": str(d_path),
+                    "xml_path": str(x_path),
+                    "width": getattr(ds_meta, 'Rows', 512),
+                    "height": getattr(ds_meta, 'Columns', 512),
+                    "annotations": annotations,  # <--- Új: Itt vannak a daganat adatok
+                    "has_tumor": len(annotations) > 0,  # Gyors szűréshez
+                    "thickness": float(getattr(ds_meta, 'SliceThickness', 0.0)),
+                    "spacing": getattr(ds_meta, 'PixelSpacing', [1.0, 1.0])
+                }
 
-                status = "✅ OK" if px_count > 0 else "⚠️ ÜRES"
+                if p_id not in self.patient_store:
+                    self.patient_store[p_id] = []
+                self.patient_store[p_id].append(slice_meta)
 
-                # Log üzenet: Most már tartalmazza a Dimenzókat is (width x height)
-                log_msg = (f"[{i + 1}/{total}] {d_path.name} | ID: {p_id} | "
-                           f"Dim: {width}x{height} | Spacing: {spacing[0]:.2f}mm | "
-                           f"{status} ({px_count} px)")
-
-                # Adatok ideiglenes tárolása (ha kellene később)
-                # Itt a ciklus végén a változók felszabadulnak, így nem eszi meg a RAM-ot
-
-                self.log_signal.emit(log_msg)
-                self.write_to_file(log_msg)
+                if i % 20 == 0 or i == total - 1:
+                    status_msg = f"Indexelve: {i + 1}/{total} (Talált daganat: {len(annotations) > 0})"
+                    self.log_signal.emit(status_msg)
+                    self.write_to_log_file(status_msg)
 
             except Exception as e:
-                err_msg = f"❌ HIBA ({d_path.name}): {str(e)}"
+                err_msg = f"⚠️ Hiba: {os.path.basename(d_path)} - {str(e)}"
                 self.log_signal.emit(err_msg)
-                self.write_to_file(err_msg)
+                self.write_to_log_file(err_msg)
 
-            # Progress bar frissítése
             self.progress_signal.emit(int(((i + 1) / total) * 100))
 
-        self.log_signal.emit("✨ Feldolgozási folyamat befejeződött.")
-        self.write_to_file("FELDOLGOZÁS VÉGE\n" + "=" * 60)
+        self.data_ready_signal.emit(self.patient_store)
         self.finished.emit()
 
 
 class DashboardInterface(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.setObjectName("processor_interface")
-        self.segmenter = LungSegmenter()
-        self.dicom_dir = None
-        self.xml_dir = None
+        self.setObjectName("dashboard_interface")
 
         self.layout = QVBoxLayout(self)
+        self.dicom_dir = None
+        self.xml_dir = None
+        self.mgr = None
+        self.log_file = "app.log"
+
         self._init_ui()
 
+    def write_to_log_file(self, message):
+        """Segédfüggvény a GUI műveletek naplózásához."""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] [GUI] {message}\n")
+
     def _init_ui(self):
-        # Vezérlő kártya
         self.top_card = CardWidget(self)
         h_ly = QHBoxLayout(self.top_card)
 
-        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM mappa")
-        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML mappa")
-        self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "Batch Indítása")
+        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM Mappa")
+        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML Mappa")
+        self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "Indexelés Indítása")
         self.run_btn.setEnabled(False)
 
         h_ly.addWidget(self.dicom_btn)
@@ -109,73 +118,108 @@ class DashboardInterface(QFrame):
         h_ly.addWidget(self.run_btn)
         self.layout.addWidget(self.top_card)
 
-        # Progress bar
         self.progress_bar = ProgressBar(self)
         self.layout.addWidget(self.progress_bar)
 
-        # Terminál log
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
         self.log_display.setStyleSheet("""
             QTextEdit {
-                background-color: #000000;
-                color: #00FF00;
+                background-color: #1a1a1a;
+                color: #00ff00;
                 font-family: 'Consolas', monospace;
-                font-size: 11px;
+                font-size: 12px;
+                border-radius: 4px;
             }
         """)
-        self.layout.addWidget(SubtitleLabel("Rendszernapló (logged.txt)"))
+        self.layout.addWidget(SubtitleLabel("Feldolgozási Napló (app.log)"))
         self.layout.addWidget(self.log_display)
 
-        # Eseménykezelők
         self.dicom_btn.clicked.connect(self.select_dicom)
         self.xml_btn.clicked.connect(self.select_xml)
-        self.run_btn.clicked.connect(self.start_batch)
+        self.run_btn.clicked.connect(self.start_index)
 
     def select_dicom(self):
-        p = QFileDialog.getExistingDirectory(self, "DICOM mappa")
+        p = QFileDialog.getExistingDirectory(self, "Válassz DICOM mappát")
         if p:
             self.dicom_dir = p
-            self.log_display.append(f"📁 DICOM set: {p}")
+            msg = f"📁 DICOM forrás kijelölve: {p}"
+            self.log_display.append(msg)
+            self.write_to_log_file(msg)
             self.check_ready()
 
     def select_xml(self):
-        p = QFileDialog.getExistingDirectory(self, "XML mappa")
+        p = QFileDialog.getExistingDirectory(self, "Válassz XML mappát")
         if p:
             self.xml_dir = p
-            self.log_display.append(f"📝 XML set: {p}")
+            msg = f"📝 XML forrás kijelölve: {p}"
+            self.log_display.append(msg)
+            self.write_to_log_file(msg)
             self.check_ready()
 
     def check_ready(self):
         if self.dicom_dir and self.xml_dir:
+            msg = "🔍 Érvényes párok keresése..."
+            self.log_display.append(msg)
+            self.write_to_log_file(msg)
+
             self.mgr = DataManager(self.dicom_dir, self.xml_dir)
             self.mgr.index_files()
             count = len(self.mgr.valid_pairs)
-            self.log_display.append(f"🔍 Talált érvényes párok: {count}")
-            if count > 0: self.run_btn.setEnabled(True)
 
-    def start_batch(self):
+            res_msg = f"✅ Talált érvényes párok: {count}"
+            self.log_display.append(res_msg)
+            self.write_to_log_file(res_msg)
+
+            if count > 0:
+                self.run_btn.setEnabled(True)
+
+    def start_index(self):
         self.run_btn.setEnabled(False)
+        # self.log_display.clear()  <-- ELTÁVOLÍTVA: Így megmarad a korábbi szöveg
+        self.log_display.append(f"\n--- Új folyamat indult: {time.ctime()} ---")
+        self.write_to_log_file("--- BATCH INDEXELÉS START ---")
+
         self.progress_bar.setValue(0)
 
-        # Kezdő log mentése
-        with open('logged.txt', 'a', encoding='utf-8') as f:
-            f.write(f"\n{'=' * 10} ÚJ FUTTATÁS: {time.ctime()} {'=' * 10}\n")
-
-        self.worker = BatchWorker(self.mgr.valid_pairs, self.segmenter)
+        self.worker = BatchWorker(self.mgr.valid_pairs)
         self.worker.log_signal.connect(self.log_display.append)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
+        self.worker.data_ready_signal.connect(self.show_summary)
         self.worker.finished.connect(lambda: self.run_btn.setEnabled(True))
         self.worker.start()
+
+    def show_summary(self, patient_store):
+        total_p = len(patient_store)
+        total_s = sum(len(s) for s in patient_store.values())
+        # Megszámoljuk a daganatos szeleteket
+        tumor_s = sum(1 for slices in patient_store.values() for s in slices if s['has_tumor'])
+
+        summary = [
+            "\n" + "=" * 40,
+            "📊 ADATHALMAZ STATISZTIKA (ANNOTÁLT)",
+            f"Összes egyedi páciens: {total_p}",
+            f"Összes szelet: {total_s}",
+            f"Daganatos szeletek száma: {tumor_s}  <--",
+            "=" * 40
+        ]
+
+        for p_id, slices in list(patient_store.items())[:15]:
+            t_count = sum(1 for s in slices if s['has_tumor'])
+            summary.append(f"• {p_id}: {len(slices)} szelet (Ebből daganatos: {t_count})")
+
+        for line in summary:
+            self.log_display.append(line)
+            self.write_to_log_file(line)
 
 
 class MainWindow(MSFluentWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LungDx Processor v3.0")
-        self.resize(800, 600)
+        self.setWindowTitle("LungDx Data Manager Pro")
+        self.resize(900, 700)
         self.dashboard = DashboardInterface(self)
-        self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Feldolgozás')
+        self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Indexelés')
         setTheme(Theme.DARK)
 
 
