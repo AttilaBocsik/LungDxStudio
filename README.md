@@ -35,6 +35,17 @@ LungCancerDetection/
 <p><strong>ViewModel:</strong> Ez köti össze a GUI-t az logikával. Itt lesznek a parancsok (pl. start_processing_command). Ez kezeli a Dask/Thread logikát, hogy a GUI ne fagyjon le.</p>
 <p><strong>Model (Core):</strong> src/core. Itt vannak a tiszta Python osztályok (DICOM kezelés, szegmentálás), amik semmit nem tudnak a GUI-ról. Így tesztelhetővé válnak.</p>
 
+#### Fájlok
+```Plaintext
+Eredeti lista indexe	Változónév nálad	.npz fájl kulcsa (Key)	Tartalom
+0	                    origin_img	        original	            Az eredeti CT szelet (float32)
+1	                    segmented_parenchyma	parenchyma	        A tüdőmaszkolt kép (LSMC)
+2	                    masked_tumor	    masked_tumor	        Csak a daganat (körülötte fekete)
+3	                    inverted_masked_roi	inverted_roi	        A ROI területe a daganat nélkül
+4	                    tumor_mask_label	label	                A daganat típusa (pl. 'A')
+5	                    patient_id	        patient_id	            A beteg azonosítója
+```
+
 #### Install
 ```bash
 pip install PyQt6 PyQt6-Fluent-Widgets

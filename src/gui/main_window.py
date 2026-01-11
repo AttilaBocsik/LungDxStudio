@@ -1,4 +1,3 @@
-# src/gui/main_window.py
 import sys
 import os
 import time
@@ -12,14 +11,13 @@ from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme,
 from src.core.data_manager import DataManager
 from src.core.segmentation.lung_segmenter import LungSegmenter
 from src.core.data_prep.annotation_parser import AnnotationParser
-# --- ITT IMPORTÁLJUK A TUMOR PROCESSORT ---
 from src.core.processing.tumor_processor import TumorProcessor
+# --- ÚJ IMPORT ---
+from src.core.learning.feature_extractor import FeatureExtractor
 
 
+# --- 1. Worker az indexeléshez ---
 class BatchWorker(QThread):
-    """
-    Memóriakímélő indexelő: Csak a metaadatokat olvassa be.
-    """
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
     data_ready_signal = pyqtSignal(dict)
@@ -38,20 +36,16 @@ class BatchWorker(QThread):
 
     def run(self):
         total = len(self.valid_pairs)
-        msg = f"🚀 Metaadatok és Annotációk indexelése {total} szelethez..."
+        msg = f"🚀 Metaadatok indexelése {total} szelethez..."
         self.log_signal.emit(msg)
         self.write_to_log_file(msg)
 
         for i, (d_path, x_path) in enumerate(self.valid_pairs):
             try:
-                # 1. DICOM Metaadatok (Lazy Loading)
                 ds_meta = pydicom.dcmread(str(d_path), stop_before_pixels=True)
                 p_id = ds_meta.PatientID if 'PatientID' in ds_meta else "Ismeretlen"
-
-                # 2. XML Annotációk kinyerése
                 annotations = AnnotationParser.parse_voc_xml(str(x_path))
 
-                # 3. Adatcsomag összeállítása
                 slice_meta = {
                     "patient_id": p_id,
                     "img_name": os.path.basename(d_path),
@@ -85,18 +79,65 @@ class BatchWorker(QThread):
         self.finished.emit()
 
 
+# --- 2. Worker a Feature Extraction-höz (ÚJ OSZTÁLY) ---
+class FeatureWorker(QThread):
+    log_signal = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.log_file = "app.log"
+
+    def write_to_log_file(self, message):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {message}\n")
+
+    def run(self):
+        self.log_signal.emit("📊 Jellemzők kinyerésének indítása (Gabor filterek)...")
+        self.write_to_log_file("--- FEATURE EXTRACTION START ---")
+
+        try:
+            # Példányosítjuk a FeatureExtractor-t
+            extractor = FeatureExtractor(data_dir="processed_data")
+
+            # Lefuttatjuk a kinyerést
+            df = extractor.extract_features()
+
+            if df is not None and not df.empty:
+                self.log_signal.emit(f"✅ Siker! {len(df)} sor generálva.")
+
+                # Mentés CSV-be
+                csv_path = "training_data_pixelwise.csv"
+                extractor.save_to_csv(df, csv_path)
+
+                msg = f"💾 CSV mentve: {csv_path}"
+                self.log_signal.emit(msg)
+                self.write_to_log_file(msg)
+            else:
+                self.log_signal.emit("⚠️ Nem keletkezett adat (üres DataFrame).")
+
+        except Exception as e:
+            err = f"❌ Hiba a feature kinyerésnél: {str(e)}"
+            self.log_signal.emit(err)
+            self.write_to_log_file(err)
+            import traceback
+            print(traceback.format_exc())
+
+        self.finished.emit()
+
+
+# --- 3. GUI Felület ---
 class DashboardInterface(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("dashboard_interface")
-
         self.layout = QVBoxLayout(self)
         self.dicom_dir = None
         self.xml_dir = None
         self.mgr = None
+        self.patient_store = None
         self.log_file = "app.log"
-        self.patient_store = None  # Itt tároljuk majd az adatokat
-
         self._init_ui()
 
     def write_to_log_file(self, message):
@@ -108,162 +149,128 @@ class DashboardInterface(QFrame):
         self.top_card = CardWidget(self)
         h_ly = QHBoxLayout(self.top_card)
 
-        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM Mappa")
-        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML Mappa")
+        self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM")
+        self.xml_btn = PushButton(FluentIcon.FOLDER, "XML")
 
-        # 1. Gomb az Indexeléshez
-        self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "Indexelés")
+        # Gombok sorrendben:
+        self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "1. Indexelés")
         self.run_btn.setEnabled(False)
 
-        # 2. Gomb a Feldolgozáshoz (TumorProcessor) - Kezdetben inaktív
-        self.process_btn = PushButton(FluentIcon.SYNC, "Feldolgozás (GVF/ROI)")
+        self.process_btn = PushButton(FluentIcon.SYNC, "2. Feldolgozás")
         self.process_btn.setEnabled(False)
+
+        # ÚJ GOMB:
+        self.export_btn = PushButton(FluentIcon.SAVE, "3. CSV Export")
+        self.export_btn.setEnabled(False)  # Csak feldolgozás után aktív
 
         h_ly.addWidget(self.dicom_btn)
         h_ly.addWidget(self.xml_btn)
         h_ly.addStretch(1)
-        h_ly.addWidget(self.process_btn)  # Hozzáadjuk a sorhoz
+        h_ly.addWidget(self.process_btn)
+        h_ly.addWidget(self.export_btn)  # Hozzáadjuk a sorhoz
         h_ly.addWidget(self.run_btn)
-        self.layout.addWidget(self.top_card)
 
+        self.layout.addWidget(self.top_card)
         self.progress_bar = ProgressBar(self)
         self.layout.addWidget(self.progress_bar)
 
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
-        self.log_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #1a1a1a;
-                color: #00ff00;
-                font-family: 'Consolas', monospace;
-                font-size: 12px;
-                border-radius: 4px;
-            }
-        """)
-        self.layout.addWidget(SubtitleLabel("Feldolgozási Napló (app.log)"))
+        self.log_display.setStyleSheet("background-color: #1a1a1a; color: #00ff00; font-family: Consolas;")
+        self.layout.addWidget(SubtitleLabel("Napló"))
         self.layout.addWidget(self.log_display)
 
-        # Signalok bekötése
+        # Signalok
         self.dicom_btn.clicked.connect(self.select_dicom)
         self.xml_btn.clicked.connect(self.select_xml)
         self.run_btn.clicked.connect(self.start_index)
-
-        # --- ITT KÖTJÜK BE A TUMOR PROCESSORT ---
         self.process_btn.clicked.connect(self.start_processing)
 
+        # ÚJ SIGNAL:
+        self.export_btn.clicked.connect(self.start_export)
+
     def select_dicom(self):
-        p = QFileDialog.getExistingDirectory(self, "Válassz DICOM mappát")
+        p = QFileDialog.getExistingDirectory(self, "DICOM Mappa")
         if p:
-            self.dicom_dir = p
-            msg = f"📁 DICOM forrás kijelölve: {p}"
-            self.log_display.append(msg)
-            self.write_to_log_file(msg)
+            self.dicom_dir = p;
             self.check_ready()
 
     def select_xml(self):
-        p = QFileDialog.getExistingDirectory(self, "Válassz XML mappát")
+        p = QFileDialog.getExistingDirectory(self, "XML Mappa")
         if p:
-            self.xml_dir = p
-            msg = f"📝 XML forrás kijelölve: {p}"
-            self.log_display.append(msg)
-            self.write_to_log_file(msg)
+            self.xml_dir = p;
             self.check_ready()
 
     def check_ready(self):
         if self.dicom_dir and self.xml_dir:
-            msg = "🔍 Érvényes párok keresése..."
-            self.log_display.append(msg)
-            self.write_to_log_file(msg)
-
             self.mgr = DataManager(self.dicom_dir, self.xml_dir)
             self.mgr.index_files()
-            count = len(self.mgr.valid_pairs)
-
-            res_msg = f"✅ Talált érvényes párok: {count}"
-            self.log_display.append(res_msg)
-            self.write_to_log_file(res_msg)
-
-            if count > 0:
-                self.run_btn.setEnabled(True)
+            if len(self.mgr.valid_pairs) > 0: self.run_btn.setEnabled(True)
+            self.log_display.append(f"✅ Párok: {len(self.mgr.valid_pairs)}")
 
     def start_index(self):
         self.run_btn.setEnabled(False)
-        self.process_btn.setEnabled(False)  # Biztonság kedvéért letiltjuk
-
-        self.log_display.append(f"\n--- Új folyamat indult: {time.ctime()} ---")
-        self.write_to_log_file("--- BATCH INDEXELÉS START ---")
-
-        self.progress_bar.setValue(0)
-
+        self.process_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
+        self.log_display.append("\n--- Indexelés Start ---")
         self.worker = BatchWorker(self.mgr.valid_pairs)
         self.worker.log_signal.connect(self.log_display.append)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
-        self.worker.data_ready_signal.connect(self.on_index_finished)  # Új metódus hívása
+        self.worker.data_ready_signal.connect(self.on_index_finished)
         self.worker.finished.connect(lambda: self.run_btn.setEnabled(True))
         self.worker.start()
 
     def on_index_finished(self, patient_store):
-        """Ez fut le, ha kész az indexelés."""
-        self.patient_store = patient_store  # Elmentjük a memóriába
-
-        total_p = len(patient_store)
-        total_s = sum(len(s) for s in patient_store.values())
+        self.patient_store = patient_store
         tumor_s = sum(1 for slices in patient_store.values() for s in slices if s['has_tumor'])
-
-        summary = [
-            "\n" + "=" * 40,
-            "📊 ADATHALMAZ STATISZTIKA (ANNOTÁLT)",
-            f"Összes egyedi páciens: {total_p}",
-            f"Összes szelet: {total_s}",
-            f"Daganatos szeletek száma: {tumor_s}",
-            "=" * 40
-        ]
-
-        for p_id, slices in list(patient_store.items())[:15]:
-            t_count = sum(1 for s in slices if s['has_tumor'])
-            summary.append(f"• {p_id}: {len(slices)} szelet (Ebből daganatos: {t_count})")
-
-        for line in summary:
-            self.log_display.append(line)
-            self.write_to_log_file(line)
-
-        # --- ENGEDÉLYEZZÜK A FELDOLGOZÁST ---
+        self.log_display.append(f"📊 Daganatos szeletek: {tumor_s}")
         if tumor_s > 0:
-            self.process_btn.setEnabled(True)
-            self.log_display.append("\n✅ Készen áll a GVF feldolgozásra. Kattints a 'Feldolgozás' gombra!")
-        else:
-            self.log_display.append("\n⚠️ Nem találtam daganatos szeletet, a feldolgozás nem indítható.")
+            self.process_btn.setEnabled(True)  # Engedélyezzük a 2. lépést
 
     def start_processing(self):
-        """Ez indítja el a TumorProcessor-t."""
-        if not self.patient_store:
-            return
-
+        if not self.patient_store: return
         self.process_btn.setEnabled(False)
         self.run_btn.setEnabled(False)
-        self.progress_bar.setValue(0)
+        self.export_btn.setEnabled(False)
+        self.log_display.append("\n--- Feldolgozás Start ---")
 
-        self.log_display.append("\n--- KÉPFELDOLGOZÁS (ROI/GVF) INDÍTÁSA ---")
-        self.write_to_log_file("--- TUMOR PROCESSOR START ---")
-
-        # TumorProcessor példányosítása és indítása
         self.processor = TumorProcessor(self.patient_store)
         self.processor.log_signal.connect(self.log_display.append)
         self.processor.log_signal.connect(self.write_to_log_file)
         self.processor.progress_signal.connect(self.progress_bar.setValue)
 
-        # Ha végzett, visszakapcsoljuk a gombokat
+        # Ha végzett, engedélyezzük a 3. lépést (Export)
         self.processor.finished.connect(lambda: self.process_btn.setEnabled(True))
         self.processor.finished.connect(lambda: self.run_btn.setEnabled(True))
+        self.processor.finished.connect(self.on_processing_finished)  # ÚJ
 
         self.processor.start()
+
+    def on_processing_finished(self):
+        """Ez fut le, ha a GVF/ROI feldolgozás kész."""
+        self.log_display.append("\n✅ Feldolgozás kész! Most már exportálhatod a CSV-t.")
+        self.export_btn.setEnabled(True)  # Gomb aktiválása
+
+    def start_export(self):
+        """Ez indítja a FeatureExtraction folyamatot."""
+        self.export_btn.setEnabled(False)
+        self.log_display.append("\n--- CSV Export Start ---")
+
+        # Indítjuk a FeatureWorkert
+        self.feat_worker = FeatureWorker()
+        self.feat_worker.log_signal.connect(self.log_display.append)
+        # Nincs progress bar signal, mert a FeatureExtractorban a tqdm konzolra ír,
+        # de a log_signal-on kapunk infót a végén.
+
+        self.feat_worker.finished.connect(lambda: self.export_btn.setEnabled(True))
+        self.feat_worker.start()
 
 
 class MainWindow(MSFluentWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("LungDx Data Manager Pro")
-        self.resize(900, 700)
+        self.resize(950, 700)
         self.dashboard = DashboardInterface(self)
         self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Indexelés')
         setTheme(Theme.DARK)
