@@ -12,15 +12,12 @@ from skimage.filters import sobel
 class FeatureExtractor:
     def __init__(self, data_dir="processed_data"):
         self.data_dir = data_dir
-        # Gabor kernelek inicializálása (ugyanaz, mint a régi project_utils-ban)
         self.gabor_kernels = self.create_gabor_kernels()
         print(f"✅ FeatureExtractor inicializálva. Gabor kernelek száma: {len(self.gabor_kernels)}")
 
     @staticmethod
     def create_gabor_kernels():
-        """
-        Gabor kernelek generálása (A régi kód alapján).
-        """
+        """Gabor kernelek generálása."""
         kernels = []
         ksize = 3
         thetas = [0, np.pi / 4]
@@ -28,7 +25,6 @@ class FeatureExtractor:
         lamdas = [np.pi / 4, np.pi / 2, 3 * np.pi / 4, np.pi]
         gammas = [0.05, 0.5]
         psi = 0
-
         for theta in thetas:
             for sigma in sigmas:
                 for lamda in lamdas:
@@ -42,27 +38,30 @@ class FeatureExtractor:
     @staticmethod
     def remove_null_rows(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Üres vagy nullás sorok törlése (A régi kód alapján).
+        Üres sorok törlése.
+        JAVÍTVA: Most már biztosan csak a fekete hátteret (0 pixel) szűri ki.
         """
         if df.empty:
             return df
 
-        # Köztes oszlopok: Image (első) és Label/PatientID (utolsó kettő) kivételével
-        # Feltételezzük, hogy az utolsó két oszlop a Label és a patient_id
+        # 1. Stratégia: Ha az EREDETI pixel (Image oszlop) 0, akkor az háttér.
+        if 'Image' in df.columns:
+            # Csak azokat tartjuk meg, ahol az eredeti kép abszolút értéke nagyobb mint 0
+            # (1e-6 a lebegőpontos hibák miatt biztonságosabb mint a sima 0)
+            df_cleaned = df[df['Image'].abs() > 1e-6]
+            return df_cleaned
+
+        # 2. Stratégia (Fallback): Ha valamiért nincs Image oszlop
         middle_cols = df.iloc[:, 1:-2]
-
-        # Feltétel: minden köztes cella 0 vagy NaN
         condition = ((middle_cols == 0) | (middle_cols.isna())).all(axis=1)
-
-        # Csak azok maradnak, ahol NEM mind nulla
         df_cleaned = df[~condition]
         return df_cleaned
 
     @staticmethod
-    def select_random_rows(df: pd.DataFrame, selected_values: list) -> pd.DataFrame:
+    def select_random_rows(df: pd.DataFrame, selected_values: list, n_limit: int = 2000) -> pd.DataFrame:
         """
-        Downsampling: Csak max 1000 sort tart meg címkénként, hogy ne fogyjon el a RAM.
-        (A régi kód alapján).
+        Downsampling: Meghatározott számú (alapértelmezett 2000) mintát tart meg
+        címkénként (Label) minden egyes képfeldolgozási lépésnél.
         """
         if df.empty:
             return df
@@ -71,32 +70,23 @@ class FeatureExtractor:
         for value in selected_values:
             temp_df = df[df['Label'] == value]
             if not temp_df.empty:
-                # Véletlenszerű mintavételezés (max 1000 sor)
-                n_samples = min(1000, len(temp_df))
-                sampled_df = temp_df.sample(n=n_samples, random_state=99)
+                # Ha kevesebb pixel van, mint a limit, az összeset kéri,
+                # ha több, akkor pontosan n_limit darabot.
+                count = min(n_limit, len(temp_df))
+                sampled_df = temp_df.sample(n=count, random_state=42)
                 filtered_dfs.append(sampled_df)
 
         if not filtered_dfs:
             return pd.DataFrame(columns=df.columns)
 
-        new_df = pd.concat(filtered_dfs).sort_index()
-        return new_df
+        return pd.concat(filtered_dfs).sort_index()
 
     def multi_filter(self, patient_id, img, tumor_type, lung_state):
         """
-        Pixel-szintű szűrők alkalmazása (Gabor, Sobel, Gaussian, stb.).
-        Visszatér egy DataFrame-mel, ahol minden sor egy pixel.
+        Pixel-szintű szűrők alkalmazása.
         """
-        # --- Kép előkészítése ---
-        # A régi kód RGB konverziót csinált, de az .npz-ben már szürkeárnyalatos (2D) képek vannak.
-        # Ha float32, konvertáljuk uint8-ra vagy normalizáljuk, ha a szűrők azt igénylik.
-        # Itt feltételezzük, hogy a bemenet 2D numpy array.
-
-        # Másolat készítése, hogy ne írjuk felül az eredetit
+        # Másolat készítése
         img2 = img.copy()
-
-        # Ha nem uint8, konvertálhatjuk (cv2 szűrők néha igénylik, de float32-vel is mennek)
-        # A régi kódban: img2 = img.reshape(-1) -> Ez az oszlopvektor
 
         df = pd.DataFrame()
 
@@ -107,38 +97,22 @@ class FeatureExtractor:
         num = 1
         for gabor in self.gabor_kernels:
             gabor_label = 'Gabor' + str(num)
-            # filter2D elfogad float32-t is
             fimg = cv2.filter2D(img2.astype('float32'), cv2.CV_32F, gabor)
             df[gabor_label] = fimg.reshape(-1)
             num += 1
 
-        # 3. Sobel
-        edge_sobel = sobel(img2)
-        df['Sobel'] = edge_sobel.reshape(-1)
+        # 3. Egyéb szűrők
+        df['Sobel'] = sobel(img2).reshape(-1)
+        df['Gaussian_s3'] = nd.gaussian_filter(img2, sigma=3).reshape(-1)
+        df['Gaussian_s7'] = nd.gaussian_filter(img2, sigma=7).reshape(-1)
+        df['Median_s3'] = nd.median_filter(img2, size=3).reshape(-1)
+        df['Variance_s3'] = nd.generic_filter(img2, np.var, size=3).reshape(-1)
 
-        # 4. Gaussian (sigma=3)
-        gaussian_img = nd.gaussian_filter(img2, sigma=3)
-        df['Gaussian_s3'] = gaussian_img.reshape(-1)
-
-        # 5. Gaussian (sigma=7)
-        gaussian_img2 = nd.gaussian_filter(img2, sigma=7)
-        df['Gaussian_s7'] = gaussian_img2.reshape(-1)
-
-        # 6. Median (size=3)
-        median_img = nd.median_filter(img2, size=3)
-        df['Median_s3'] = median_img.reshape(-1)
-
-        # 7. Variance (size=3)
-        variance_img = nd.generic_filter(img2, np.var, size=3)
-        df['Variance_s3'] = variance_img.reshape(-1)
-
-        # --- Címkézés (Labeling) ---
-        # A régi logika alapján számkódokat rendelünk a pixelekhez
+        # --- Címkézés ---
         label_value = 0
-
-        if lung_state == "healthy_lungs":  # 1. Egészséges tüdő (Parenchyma)
+        if lung_state == "healthy_lungs":
             label_value = 1
-        elif lung_state == "diseased_lungs":  # 2. Beteg tüdő (Teljes kép)
+        elif lung_state == "diseased_lungs":
             if tumor_type == 'A':
                 label_value = 4
             elif tumor_type == 'B':
@@ -147,11 +121,9 @@ class FeatureExtractor:
                 label_value = 6
             elif tumor_type == 'G':
                 label_value = 7
-            else:
-                label_value = 0
-        elif lung_state == "healthy_soft_tissue":  # 4. Egészséges szövet (ROI Context)
+        elif lung_state == "healthy_soft_tissue":
             label_value = 1
-        elif lung_state == "diseased_soft_tissue":  # 3. Beteg szövet (Masked Tumor)
+        elif lung_state == "diseased_soft_tissue":
             if tumor_type == 'A':
                 label_value = 8
             elif tumor_type == 'B':
@@ -160,18 +132,16 @@ class FeatureExtractor:
                 label_value = 12
             elif tumor_type == 'G':
                 label_value = 14
-            else:
-                label_value = 0
 
         df["Label"] = label_value
-        df["patient_id"] = patient_id
+        # JAVÍTÁS: Biztosítjuk, hogy a patient_id minden sorba bekerüljön
+        df["patient_id"] = str(patient_id)
 
         return df
 
     def extract_features(self):
         """
-        Ez a metódus helyettesíti a régi 'preprocessing_images'-t.
-        Végigmegy az összes .npz fájlon, és létrehozza a nagy tanító táblázatot.
+        Végigmegy a fájlokon, összerakja a táblázatot és statisztikát készít.
         """
         npz_files = glob.glob(os.path.join(self.data_dir, "*.npz"))
 
@@ -179,67 +149,79 @@ class FeatureExtractor:
             print("❌ Nincsenek .npz fájlok a processed_data mappában.")
             return None
 
-        print(f"🔄 Pixel-szintű jellemzők kinyerése {len(npz_files)} fájlból...")
+        print(f"🔄 Jellemzők kinyerése {len(npz_files)} fájlból...")
 
-        dfs_to_merge = []  # Ide gyűjtjük a kisebb DataFrame-eket
+        dfs_to_merge = []
 
         for file_path in tqdm(npz_files, desc="Feldolgozás"):
             try:
-                # 1. Betöltjük az .npz fájlt (Lazy Loading helyett itt memóriába vesszük)
                 with np.load(file_path) as data:
-                    # Kinyerjük a képeket és metaadatokat
-                    # [0] Eredeti -> data['original']
-                    # [1] Parenchyma -> data['parenchyma']
-                    # [2] Masked Tumor -> data['masked_tumor']
-                    # [3] Inverted ROI -> data['inverted_roi']
-                    # [4] Label -> data['label']
-                    # [5] Patient ID -> data['patient_id']
-
                     img_original = data['original']
                     img_parenchyma = data['parenchyma']
                     img_tumor = data['masked_tumor']
                     img_roi_context = data['inverted_roi']
-
                     label = str(data['label'])
-                    p_id = str(data['patient_id'])
 
-                # 2. Szűrési lépések (ugyanaz a sorrend, mint a régiben)
+                    # Páciens ID tisztítása
+                    raw_id = data['patient_id']
+                    p_id = str(raw_id).replace("['", "").replace("']", "")
 
-                # --- A) Beteg tüdő (Teljes kép - Original) ---
+                # --- Mintavételezés (Szeletenként és képtípusonként 2000 minta) ---
+
+                # A) Beteg tüdő
                 df_orig = self.multi_filter(p_id, img_original, label, lung_state="diseased_lungs")
                 df_orig = self.remove_null_rows(df_orig)
-                df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7])
+                df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7], n_limit=2000)
 
-                # --- B) Egészséges tüdő (Parenchyma) ---
+                # B) Egészséges tüdő
                 df_par = self.multi_filter(p_id, img_parenchyma, label, lung_state="healthy_lungs")
                 df_par = self.remove_null_rows(df_par)
-                df_par = self.select_random_rows(df_par, [0, 1])
+                df_par = self.select_random_rows(df_par, [0, 1], n_limit=2000)
 
-                # --- C) Beteg lágyszövet (Tumor) ---
+                # C) Daganat
                 df_tum = self.multi_filter(p_id, img_tumor, label, lung_state="diseased_soft_tissue")
                 df_tum = self.remove_null_rows(df_tum)
-                df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14])
+                df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14], n_limit=2000)
 
-                # --- D) Egészséges lágyszövet (ROI Context) ---
+                # D) ROI Context
                 df_roi = self.multi_filter(p_id, img_roi_context, label, lung_state="healthy_soft_tissue")
                 df_roi = self.remove_null_rows(df_roi)
-                df_roi = self.select_random_rows(df_roi, [0, 1])
+                df_roi = self.select_random_rows(df_roi, [0, 1], n_limit=2000)
 
-                # Hozzáadjuk a listához
                 dfs_to_merge.extend([df_orig, df_par, df_tum, df_roi])
 
             except Exception as e:
                 print(f"⚠️ Hiba a fájlnál ({os.path.basename(file_path)}): {e}")
 
-        # 3. Összefűzés (Final Merge)
         if dfs_to_merge:
-            print("📊 Adatok egyesítése egyetlen DataFrame-be...")
+            print("\n📊 Adatok egyesítése és végső simítások...")
             df_all = pd.concat(dfs_to_merge, ignore_index=True)
 
-            # Utólagos tisztítás (ahogy a régi kódban volt)
+            # Tisztítás
             df_all.loc[df_all['Image'] == 0.0, 'Label'] = 0
 
-            print(f"✅ Kész! Eredmény mérete: {df_all.shape}")
+            # --- STATISZTIKA KÉSZÍTÉSE ---
+            print("\n" + "=" * 50)
+            print("        📊 PÁCIENS SZINTŰ STATISZTIKA")
+            print("=" * 50)
+
+            # Megszámoljuk, melyik páciensből hány sor (pixel) került be
+            stats = df_all['patient_id'].value_counts()
+
+            for p_name, count in stats.items():
+                # Kiszámoljuk a daganatos pixelek arányát is az adott páciensnél
+                p_data = df_all[df_all['patient_id'] == p_name]
+                tumor_pixels = len(p_data[p_data['Label'] > 1])
+                print(f"👤 Páciens: {p_name:<20} | Összes pixel: {count:>6} | Daganatos: {tumor_pixels:>6}")
+
+            print("-" * 50)
+            print(f"📈 ÖSSZESEN: {len(df_all)} sor a CSV fájlban.")
+            print("=" * 50 + "\n")
+
+            # Keverés (Shuffle)
+            print("🔀 Adatok összekeverése...")
+            df_all = df_all.sample(frac=1).reset_index(drop=True)
+
             return df_all
         else:
             return pd.DataFrame()
