@@ -1,15 +1,15 @@
-# src/gui/main_window_v2.py
+# src/gui/main_window.py
 import sys
 import os
 import time
 import pydicom
-import shutil  # Fontos a takarításhoz
-from dask.distributed import Client  # Dask kliens a párhuzamosításhoz
+import shutil
+from dask.distributed import Client
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QFrame, QVBoxLayout, QHBoxLayout, QFileDialog, QTextEdit, QMessageBox
-from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme,
-                            PrimaryPushButton, PushButton, CardWidget, FluentIcon, ProgressBar)
+from qfluentwidgets import (MSFluentWindow, SubtitleLabel, setTheme, Theme, BodyLabel,
+                            PrimaryPushButton, PushButton, CardWidget, FluentIcon, ProgressBar, SwitchButton)
 
 # Saját modulok importálása
 from src.core.data_manager import DataManager
@@ -17,13 +17,11 @@ from src.core.processing.tumor_processor import TumorProcessor
 from src.core.learning.feature_extractor import FeatureExtractor
 from src.core.data_prep.annotation_parser import AnnotationParser
 
-# --- Itt importáljuk a tanítási logikát (az előző beszélgetésből) ---
-# Feltételezem, hogy ezt a fájlt létrehoztad: src/core/learning/training_logic.py
+# Tanítási logika importálása
 try:
     from src.core.learning.training_logic import XGBoostTrainer
 except ImportError:
-    print("HIBA: Nem található a src.core.learning.training_logic modul! Ellenőrizd a fájlt.")
-    XGBoostTrainer = None  # Placeholder, hogy ne szálljon el az import hiba miatt azonnal
+    XGBoostTrainer = None
 
 
 # --- 1. Worker az indexeléshez ---
@@ -88,7 +86,7 @@ class BatchWorker(QThread):
         self.finished.emit()
 
 
-# --- 2. Worker a Feature Extraction-höz ---
+# --- 2. Worker a Feature Extraction-höz (Export) ---
 class FeatureWorker(QThread):
     log_signal = pyqtSignal(str)
     finished = pyqtSignal()
@@ -103,81 +101,75 @@ class FeatureWorker(QThread):
             f.write(f"[{timestamp}] {message}\n")
 
     def run(self):
-        self.log_signal.emit("📊 Jellemzők kinyerésének indítása (Gabor filterek)...")
-        self.write_to_log_file("--- FEATURE EXTRACTION START ---")
-
+        self.log_signal.emit("📊 Jellemzők kinyerése (CSV exportálás folyamatban)...")
         try:
             extractor = FeatureExtractor(data_dir="processed_data")
             df = extractor.extract_features()
 
             if df is not None and not df.empty:
-                self.log_signal.emit(f"✅ Siker! {len(df)} sor generálva.")
                 csv_path = "training_data_pixelwise.csv"
                 extractor.save_to_csv(df, csv_path)
-                msg = f"💾 CSV mentve: {csv_path}"
+                msg = f"✅ CSV mentve: {csv_path} ({len(df)} sor)"
                 self.log_signal.emit(msg)
                 self.write_to_log_file(msg)
             else:
-                self.log_signal.emit("⚠️ Nem keletkezett adat (üres DataFrame).")
-
+                self.log_signal.emit("⚠️ Hiba: Nem generálódott adat.")
         except Exception as e:
-            err = f"❌ Hiba a feature kinyerésnél: {str(e)}"
-            self.log_signal.emit(err)
-            self.write_to_log_file(err)
-            import traceback
-            print(traceback.format_exc())
+            self.log_signal.emit(f"❌ Hiba: {str(e)}")
 
         self.finished.emit()
 
 
-# --- 3. ÚJ Worker a Modell Tanításhoz ---
+# --- 3. ÚJ: Worker a Modell Tanításhoz ---
 class TrainingWorker(QThread):
-    log_signal = pyqtSignal(str)  # Üzenetek küldése a GUI-nak
-    finished_signal = pyqtSignal(bool)  # Jelzés, ha kész (siker/hiba)
+    log_signal = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool)
 
-    def __init__(self, trainer_class, *args, **kwargs):
+    def __init__(self, trainer_class, do_split, *args, **kwargs):
         super().__init__()
-        # Itt dinamikusan példányosítjuk a kapott tréner osztályt (Strategy pattern)
-        if trainer_class is None:
-            raise ValueError("Nincs Trainer osztály megadva!")
-        self.trainer = trainer_class(*args, **kwargs)
+        self.do_split = do_split
+        self.trainer = trainer_class(*args, **kwargs) if trainer_class else None
 
     def run(self):
-        # Ez a metódus fut a háttérszálon, így nem fagy le a GUI
-        success = self.trainer.train(self.emit_log)
+        if not self.trainer:
+            self.log_signal.emit("❌ Hiba: XGBoostTrainer nem található!")
+            self.finished_signal.emit(False)
+            return
+
+        # A tanítás indítása a választott móddal
+        success = self.trainer.train(self.emit_log, do_split=self.do_split)
         self.finished_signal.emit(success)
 
     def emit_log(self, message):
-        # Callback függvény, amit átadunk a trénernek
         self.log_signal.emit(message)
 
 
-# --- 4. GUI Felület ---
+# --- DASHBOARD INTERFACE ---
+
 class DashboardInterface(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("dashboard_interface")
         self.layout = QVBoxLayout(self)
 
+        # Adatok tárolása
         self.dicom_dir = None
         self.xml_dir = None
         self.mgr = None
         self.patient_store = None
         self.log_file = "app.log"
 
-        # Konfiguráció a modellhez
-        self.config = {'model-name': 'lung_xgb.pkl'}
-        self.resource_folder = "resources"  # Hozzunk létre egy mappát a modelleknek
+        # Modell konfig
+        self.config = {'model-name': 'lung_dx_model.pkl'}
+        self.resource_folder = "resources"
         if not os.path.exists(self.resource_folder):
             os.makedirs(self.resource_folder)
 
-        # Dask Client indítása (egyszer az alkalmazás elején)
+        # Dask indítása a háttérben
         try:
-            # LocalCluster-t indít automatikusan
             self.dask_client = Client(processes=False)
-            print(f"Dask Dashboard link: {self.dask_client.dashboard_link}")
         except Exception as e:
-            print(f"Nem sikerült elindítani a Dask klienst: {e}")
+            print(f"Dask Error: {e}")
             self.dask_client = None
 
         self._init_ui()
@@ -188,39 +180,45 @@ class DashboardInterface(QFrame):
             f.write(f"[{timestamp}] [GUI] {message}\n")
 
     def _init_ui(self):
-        # Felső vezérlő panel
+        # Felső vezérlő panel kártyán
         self.top_card = CardWidget(self)
         h_ly = QHBoxLayout(self.top_card)
 
-        # Mappa választó gombok (Bal oldal)
+        # Forrás mappák
         self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM")
         self.xml_btn = PushButton(FluentIcon.FOLDER, "XML")
 
-        # Folyamat gombok (Jobb oldal, sorrendben)
+        # Folyamat gombok (sorrendben)
         self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "1. Indexelés")
         self.process_btn = PrimaryPushButton(FluentIcon.SYNC, "2. Feldolgozás")
         self.export_btn = PrimaryPushButton(FluentIcon.SAVE, "3. CSV Export")
 
-        # --- ÚJ GOMB ---
-        self.train_btn = PrimaryPushButton(FluentIcon.ROBOT, "4. Modell Tanítás")
+        # Tanítás szekció (Kapcsoló + Gomb)
+        self.train_mode_layout = QVBoxLayout()
+        self.test_mode_switch = SwitchButton()
+        self.test_mode_switch.setOnText("Teszt (80/20)")
+        self.test_mode_switch.setOffText("Végleges (100%)")
+        self.test_mode_switch.setChecked(True)  # Alapból teszt mód
 
-        # Kezdeti állapot: minden folyamat gomb inaktív
-        self.run_btn.setEnabled(False)
-        self.process_btn.setEnabled(False)
-        self.export_btn.setEnabled(False)
-        self.train_btn.setEnabled(False)  # Alapból tiltva
+        self.train_mode_layout.addWidget(BodyLabel("Tanítási mód:"))
+        self.train_mode_layout.addWidget(self.test_mode_switch)
 
-        # Elrendezés hozzáadása
+        self.train_btn = PrimaryPushButton(FluentIcon.ROBOT, "4. Tanítás")
+
+        # Gombok tiltása az elején
+        for btn in [self.run_btn, self.process_btn, self.export_btn, self.train_btn]:
+            btn.setEnabled(False)
+
+        # UI elemek elrendezése
         h_ly.addWidget(self.dicom_btn)
         h_ly.addWidget(self.xml_btn)
-
-        h_ly.addStretch(1)  # Távtartó
-
-        # Balról jobbra sorrend:
+        h_ly.addStretch(1)
         h_ly.addWidget(self.run_btn)
         h_ly.addWidget(self.process_btn)
         h_ly.addWidget(self.export_btn)
-        h_ly.addWidget(self.train_btn)  # Hozzáadva a sor végére
+        h_ly.addSpacing(20)
+        h_ly.addLayout(self.train_mode_layout)
+        h_ly.addWidget(self.train_btn)
 
         self.layout.addWidget(self.top_card)
 
@@ -228,223 +226,135 @@ class DashboardInterface(QFrame):
         self.progress_bar = ProgressBar(self)
         self.layout.addWidget(self.progress_bar)
 
-        # Napló kijelző
+        # Log ablak
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
-        self.log_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #1a1a1a; 
-                color: #00ff00; 
-                font-family: Consolas;
-                font-size: 12px;
-            }
-        """)
+        self.log_display.setStyleSheet(
+            "background-color: #1a1a1a; color: #00ff00; font-family: Consolas; font-size: 12px;")
         self.layout.addWidget(SubtitleLabel("Rendszernapló"))
         self.layout.addWidget(self.log_display)
 
-        # Signalok bekötése
+        # Signal bekötések
         self.dicom_btn.clicked.connect(self.select_dicom)
         self.xml_btn.clicked.connect(self.select_xml)
         self.run_btn.clicked.connect(self.start_index)
         self.process_btn.clicked.connect(self.start_processing)
         self.export_btn.clicked.connect(self.start_export)
-        # Új signal
         self.train_btn.clicked.connect(self.start_training_process)
 
-    # ... (select_dicom, select_xml, check_ready, start_index, on_index_finished - VÁLTOZATLANOK) ...
+    # --- LOGIKA ---
+
     def select_dicom(self):
         p = QFileDialog.getExistingDirectory(self, "DICOM Mappa")
         if p:
             self.dicom_dir = p
-            msg = f"📂 DICOM Mappa kiválasztva: {self.dicom_dir}"
-            self.log_display.append(msg)
-            self.write_to_log_file(msg)
+            self.log_display.append(f"📂 DICOM: {p}")
             self.check_ready()
 
     def select_xml(self):
         p = QFileDialog.getExistingDirectory(self, "XML Mappa")
         if p:
             self.xml_dir = p
-            msg = f"📝 XML Mappa kiválasztva: {self.xml_dir}"
-            self.log_display.append(msg)
-            self.write_to_log_file(msg)
+            self.log_display.append(f"📝 XML: {p}")
             self.check_ready()
 
     def check_ready(self):
         if self.dicom_dir and self.xml_dir:
-            self.log_display.append("🔍 Fájlok ellenőrzése...")
             self.mgr = DataManager(self.dicom_dir, self.xml_dir)
             self.mgr.index_files()
-
-            count = len(self.mgr.valid_pairs)
-            msg = f"✅ Talált párok száma: {count}"
-            self.log_display.append(msg)
-
-            if count > 0:
+            if len(self.mgr.valid_pairs) > 0:
                 self.run_btn.setEnabled(True)
-                self.log_display.append("➡️ Kattints az '1. Indexelés' gombra!")
+                self.log_display.append(f"✅ Talált párok: {len(self.mgr.valid_pairs)}. Mehet az indexelés!")
 
     def start_index(self):
         self.run_btn.setEnabled(False)
-        self.process_btn.setEnabled(False)
-        self.export_btn.setEnabled(False)
-        self.train_btn.setEnabled(False)
-
-        self.log_display.append("\n--- 1. INDEXELÉS INDÍTÁSA ---")
+        self.log_display.append("\n--- 1. INDEXELÉS ---")
         self.worker = BatchWorker(self.mgr.valid_pairs)
         self.worker.log_signal.connect(self.log_display.append)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
-        self.worker.data_ready_signal.connect(self.on_index_finished)
-        self.worker.finished.connect(lambda: self.run_btn.setEnabled(True))
+        self.worker.data_ready_signal.connect(lambda data: setattr(self, 'patient_store', data))
+        self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
         self.worker.start()
 
-    def on_index_finished(self, patient_store):
-        self.patient_store = patient_store
-        total_p = len(patient_store)
-        tumor_s = sum(1 for slices in patient_store.values() for s in slices if s['has_tumor'])
-
-        self.log_display.append("=" * 30)
-        self.log_display.append(f"📊 Összes páciens: {total_p}")
-        self.log_display.append(f"📊 Daganatos szeletek: {tumor_s}")
-        self.log_display.append("=" * 30)
-
-        if tumor_s > 0:
-            self.process_btn.setEnabled(True)
-            self.log_display.append("\n➡️ Az indexelés kész. Kattints a '2. Feldolgozás' gombra!")
-        else:
-            self.log_display.append("\n⚠️ Nem találtam daganatot, a folyamat itt megáll.")
-
     def start_processing(self):
-        if not self.patient_store: return
-
-        # Takarítás
-        processed_dir = "processed_data"
-        if os.path.exists(processed_dir):
-            self.log_display.append("🧹 Régi feldolgozott adatok törlése...")
-            for filename in os.listdir(processed_dir):
-                file_path = os.path.join(processed_dir, filename)
-                try:
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    print(f"Nem sikerült törölni: {file_path}. Ok: {e}")
-
         self.process_btn.setEnabled(False)
-        self.run_btn.setEnabled(False)
-        self.export_btn.setEnabled(False)
-        self.train_btn.setEnabled(False)
-
-        self.log_display.append("\n--- 2. FELDOLGOZÁS (ROI/GVF) INDÍTÁSA ---")
-        self.progress_bar.setValue(0)
-
+        self.log_display.append("\n--- 2. FELDOLGOZÁS ---")
         self.processor = TumorProcessor(self.patient_store)
         self.processor.log_signal.connect(self.log_display.append)
-        self.processor.log_signal.connect(self.write_to_log_file)
         self.processor.progress_signal.connect(self.progress_bar.setValue)
-
-        self.processor.finished.connect(lambda: self.process_btn.setEnabled(True))
-        self.processor.finished.connect(lambda: self.run_btn.setEnabled(True))
-        self.processor.finished.connect(self.on_processing_finished)
-
+        self.processor.finished.connect(lambda: self.export_btn.setEnabled(True))
         self.processor.start()
-
-    def on_processing_finished(self):
-        self.log_display.append("\n✅ Feldolgozás és mentés (.npz) kész!")
-        self.export_btn.setEnabled(True)
-        self.log_display.append("➡️ Kattints a '3. CSV Export' gombra!")
 
     def start_export(self):
         self.export_btn.setEnabled(False)
-        self.train_btn.setEnabled(False)
-        self.log_display.append("\n--- 3. CSV EXPORT (JELLEMZŐK KINYERÉSE) ---")
-        self.progress_bar.setValue(0)
-
+        self.log_display.append("\n--- 3. CSV EXPORT ---")
         self.feat_worker = FeatureWorker()
         self.feat_worker.log_signal.connect(self.log_display.append)
-
-        # Ha kész, újra aktív
-        self.feat_worker.finished.connect(lambda: self.export_btn.setEnabled(True))
-        # !!! ITT KAPCSOLJUK BE A TANÍTÁS GOMBOT !!!
         self.feat_worker.finished.connect(self.on_export_finished)
         self.feat_worker.start()
 
     def on_export_finished(self):
-        # Ez a metódus hívódik meg, ha a CSV generálás kész
-        self.log_display.append("\n✅ CSV Export kész!")
-        self.train_btn.setEnabled(True)  # 4. Gomb aktiválása
-        self.log_display.append("➡️ Kattints a '4. Modell Tanítás' gombra!")
+        self.export_btn.setEnabled(True)
+        self.train_btn.setEnabled(True)  # Itt aktiválódik a 4. lépés
+        self.log_display.append("➡️ Kész! Mehet a Modell Tanítás.")
 
-    # --- 5. ÚJ METÓDUS: Tanítás indítása ---
     def start_training_process(self):
-        csv_path = "training_data_pixelwise.csv"
-
-        # 1. Ellenőrzés
-        if hasattr(self, 'training_worker') and self.training_worker.isRunning():
-            QMessageBox.warning(self, "Folyamatban", "A tanítás már fut!")
-            return
-
-        if not self.dask_client:
-            QMessageBox.critical(self, "Hiba", "A Dask kliens nincs inicializálva! Nem lehet tanítani.")
-            return
-
         if not XGBoostTrainer:
-            QMessageBox.critical(self, "Import Hiba", "Nem található a tanító logika (XGBoostTrainer)!")
+            QMessageBox.critical(self, "Hiba", "Nincs meg a TrainingLogic modul!")
             return
 
-        # 2. UI frissítés
-        self.train_btn.setEnabled(False)
-        self.log_display.append("\n--- 4. MODELL TANÍTÁS INDÍTÁSA (XGBoost) ---")
-        self.progress_bar.setValue(0)  # Tanításnál nem tudjuk a %-ot pontosan, 0-n tartjuk vagy pulzálhat
+        # Leolvassuk a kapcsolót
+        do_split = self.test_mode_switch.isChecked()
 
-        # 3. Worker indítása
-        # Itt adjuk át a paramétereket az XGBoostTrainer __init__-jének
-        self.training_worker = TrainingWorker(
-            XGBoostTrainer,  # Osztály referenciája
-            csv_file_path=csv_path,
+        self.train_btn.setEnabled(False)
+        self.log_display.append("\n" + "=" * 40)
+        self.log_display.append(f"🧠 TANÍTÁS INDÍTÁSA | Mód: {'TESZTELÉS (80/20)' if do_split else 'VÉGLEGES (100%)'}")
+        self.log_display.append("=" * 40)
+
+        self.train_worker = TrainingWorker(
+            XGBoostTrainer,
+            do_split=do_split,
+            csv_file_path="training_data_pixelwise.csv",
             resource_folder=self.resource_folder,
             config=self.config,
             client=self.dask_client
         )
-
-        self.training_worker.log_signal.connect(self.log_display.append)
-        self.training_worker.log_signal.connect(self.write_to_log_file)
-        self.training_worker.finished_signal.connect(self.on_training_finished)
-
-        self.training_worker.start()
+        self.train_worker.log_signal.connect(self.log_display.append)
+        self.train_worker.finished_signal.connect(self.on_training_finished)
+        self.train_worker.start()
 
     def on_training_finished(self, success):
         self.train_btn.setEnabled(True)
-        self.progress_bar.setValue(100)
-
         if success:
-            msg = f"🎉 SIKER! A modell mentve ide: {self.resource_folder}/{self.config['model-name']}"
-            self.log_display.append(msg)
-            QMessageBox.information(self, "Kész", "A modell tanítása sikeresen befejeződött!")
+            QMessageBox.information(self, "Siker", "A modell tanítása sikeresen befejeződött!")
         else:
-            self.log_display.append("❌ Hiba történt a tanítás során.")
-            QMessageBox.critical(self, "Hiba", "A modell tanítása közben hiba lépett fel. Lásd a logot.")
+            QMessageBox.warning(self, "Hiba", "Hiba történt a tanítás során.")
 
 
 class MainWindow(MSFluentWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LungDx Data Manager Pro")
-        self.resize(1100, 800)  # Kicsit szélesebb ablak a 4 gomb miatt
+        self.setWindowTitle("LungDx Studio Pro")
+        self.resize(1200, 800)
+
         self.dashboard = DashboardInterface(self)
-        self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Adatkezelés')
+        self.addSubInterface(self.dashboard, FluentIcon.ACCEPT, 'Adatkezelés & Tanítás')
+
         setTheme(Theme.DARK)
 
-    # Dask kliens bezárása kilépéskor
     def closeEvent(self, event):
+        # Dask leállítása kilépéskor
         if hasattr(self.dashboard, 'dask_client') and self.dashboard.dask_client:
-            print("Dask kliens leállítása...")
             self.dashboard.dask_client.close()
         event.accept()
 
 
 if __name__ == '__main__':
+    # PyInstaller és Multiprocessing támogatás
+    from multiprocessing import freeze_support
+
+    freeze_support()
+
     app = QApplication(sys.argv)
     w = MainWindow()
     w.show()
