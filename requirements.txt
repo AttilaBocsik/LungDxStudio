@@ -1,0 +1,15 @@
+numpy
+opencv-python-headless
+pydicom
+SimpleITK
+scikit-image
+scikit-learn
+scipy
+pandas
+dask[complete]
+dask-ml
+xgboost
+joblib
+PyQt6
+qfluentwidgets
+pyinstaller

@@ -1,0 +1,68 @@
+name: Build LungDx Studio
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Kézi indítás lehetősége
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install system dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-glx libegl1-mesa libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0
+
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller build.spec
+
+    # Windows specifikus csomagolás (Zip)
+    - name: Archive Windows Build
+      if: runner.os == 'Windows'
+      run: |
+        Compress-Archive -Path dist/LungDxStudioPro -DestinationPath LungDxStudioPro_Windows.zip
+
+    # Linux specifikus csomagolás (Tar)
+    - name: Archive Linux Build
+      if: runner.os == 'Linux'
+      run: |
+        tar -czvf LungDxStudioPro_Linux.tar.gz -C dist LungDxStudioPro
+
+    # Feltöltés Artifactként (innen töltheted le a GitHubon)
+    - name: Upload Windows Artifact
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: LungDxStudioPro-Windows
+        path: LungDxStudioPro_Windows.zip
+
+    - name: Upload Linux Artifact
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: LungDxStudioPro-Linux
+        path: LungDxStudioPro_Linux.tar.gz
