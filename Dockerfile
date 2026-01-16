@@ -8,7 +8,7 @@ WORKDIR /app
 # (Szükségesek az OpenCV-hez és a PyQt6-hoz Linuxon)
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libegl1 \
     libxkbcommon-x11-0 \
