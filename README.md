@@ -12,6 +12,9 @@ LungCancerDetection/
 │   ├── config.py           # Konfiguráció kezelés (config.json helyett osztály)
 │   ├── core/               # Üzleti logika (a "Model" és "Service" réteg)
 │   │   ├── dicom_handler.py    # Robusztus DICOM betöltés
+        ├── learning
+            ├── feature_extractor.py    # 
+│   │       └── training_logic.py       # 
 │   │   ├── annotation_handler.py # XML feldolgozás (javított)
 │   │   ├── data_manager.py     # A kettő összerendelése (Dicom <-> XML)
 │   │   └── segmentation/       # Az algoritmusok
