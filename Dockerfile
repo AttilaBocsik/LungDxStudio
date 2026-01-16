@@ -1,11 +1,8 @@
-# Dockerfile
 FROM python:3.11-slim
 
-# Munkakönyvtár beállítása
 WORKDIR /app
 
-# Rendszer szintű függőségek telepítése
-# (Szükségesek az OpenCV-hez és a PyQt6-hoz Linuxon)
+# Rendszerfüggőségek (Ubuntu 24.04 kompatibilis)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1 \
@@ -16,15 +13,13 @@ RUN apt-get update && apt-get install -y \
     libxcb-cursor0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Függőségek másolása és telepítése
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir PyQt6-Fluent-Widgets && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Forráskód másolása
 COPY . .
 
-# Környezeti változó, hogy a Python lássa a src modult
 ENV PYTHONPATH="${PYTHONPATH}:/app"
 
-# Alapértelmezett parancs (ez felülírható, pl. tanítás indítására)
-CMD ["python", "src/gui/main_window.py"]
+CMD ["python", "main_window.py"]
