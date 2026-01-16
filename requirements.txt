@@ -11,5 +11,5 @@ dask-ml
 xgboost
 joblib
 PyQt6
-qfluentwidgets
+PyQt6-Fluent-Widgets
 pyinstaller
