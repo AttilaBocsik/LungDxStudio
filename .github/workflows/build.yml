@@ -1,11 +1,9 @@
-name: Build LungDx Studio
+name: Build and Release LungDx Studio
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: # Kézi indítás lehetősége
+  workflow_dispatch:
 
 jobs:
   build:
@@ -40,29 +38,29 @@ jobs:
       run: |
         pyinstaller build.spec
 
-    # Windows specifikus csomagolás (Zip)
+    # Windows csomagolás
     - name: Archive Windows Build
       if: runner.os == 'Windows'
       run: |
         Compress-Archive -Path dist/LungDxStudioPro -DestinationPath LungDxStudioPro_Windows.zip
 
-    # Linux specifikus csomagolás (Tar)
+    # Linux csomagolás
     - name: Archive Linux Build
       if: runner.os == 'Linux'
       run: |
         tar -czvf LungDxStudioPro_Linux.tar.gz -C dist LungDxStudioPro
 
-    # Feltöltés Artifactként (innen töltheted le a GitHubon)
-    - name: Upload Windows Artifact
-      if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
+    # Release létrehozása (csak ha a main ágra pusholsz)
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       with:
-        name: LungDxStudioPro-Windows
-        path: LungDxStudioPro_Windows.zip
-
-    - name: Upload Linux Artifact
-      if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
-      with:
-        name: LungDxStudioPro-Linux
-        path: LungDxStudioPro_Linux.tar.gz
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        draft: false
+        prerelease: false
+        files: |
+          LungDxStudioPro_Windows.zip
+          LungDxStudioPro_Linux.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
