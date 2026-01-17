@@ -1,3 +1,21 @@
+partd
+toolz
+fsspec
+packaging
+distributed
+sparse
+cloudpickle
+click
+PyYAML
+tblib
+Jinja2
+pyarrow
+psutil
+bokeh
+importlib_metadata
+tornado
+darkdetect
+pillow
 numpy
 opencv-python-headless
 pydicom
@@ -13,4 +31,5 @@ joblib
 PyQt6
 PyQt6-Fluent-Widgets
 tqdm
+matplotlib>=3.3
 pyinstaller
