@@ -12,4 +12,5 @@ xgboost
 joblib
 PyQt6
 PyQt6-Fluent-Widgets
+tqdm
 pyinstaller
