@@ -32,4 +32,6 @@ PyQt6
 PyQt6-Fluent-Widgets
 tqdm
 matplotlib>=3.3
+sphinx
+sphinx-rtd-theme
 pyinstaller

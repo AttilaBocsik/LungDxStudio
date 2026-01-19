@@ -4,11 +4,38 @@ import os
 
 
 class AnnotationParser:
+    """
+    Annotációs fájlok (pl. XML) beolvasását és értelmezését végző segédosztály.
+
+    Ez az osztály statikus metódusokat biztosít a különböző annotációs formátumok
+    kezeléséhez. Jelenleg a Pascal VOC szabványú XML fájlok feldolgozását támogatja,
+    amelyek a daganatok vagy egyéb objektumok befoglaló téglalapjait (bbox) tartalmazzák.
+    """
+
     @staticmethod
     def parse_voc_xml(xml_path):
         """
-        Pascal VOC XML feldolgozása.
-        Visszaadja a daganatok (objektumok) listáját.
+        Egy Pascal VOC formátumú XML annotációs fájl beolvasása és feldolgozása.
+
+        A függvény megnyitja a megadott XML fájlt, végigiterál az összes benne található
+        `object` elemen, és kinyeri a címkét (name), valamint a befoglaló téglalap
+        (bndbox) koordinátáit. Ezen felül származtatott adatokat (középpont, terület)
+        is számol.
+
+        Args:
+            xml_path (str): A feldolgozandó XML fájl teljes elérési útja.
+
+        Returns:
+            list of dict: Az azonosított objektumok (annotációk) listája.
+                Ha a fájl nem létezik vagy hiba történik, üres listával tér vissza.
+
+                Egy lista elem (szótár) felépítése:
+                {
+                    "label" (str): Az objektum osztálya/neve (pl. 'tumor', 'A').
+                    "bbox" (tuple): (xmin, ymin, xmax, ymax) egész számként.
+                    "center" (tuple): A téglalap középpontja ((x+x)/2, (y+y)/2) float-ként.
+                    "area" (int): A befoglaló téglalap területe pixelben.
+                }
         """
         objects = []
         if not os.path.exists(xml_path):

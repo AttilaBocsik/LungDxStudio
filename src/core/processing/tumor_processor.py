@@ -11,11 +11,37 @@ from src.core.lsmc import LSMC
 
 
 class TumorProcessor(QThread):
+    """
+    Háttérszál (QThread) a daganatos CT szeletek kötegelt feldolgozására.
+
+    Ez az osztály felelős azért, hogy végigmenjen a `patient_store`-ban tárolt
+    betegeken és szeleteken, kiválassza a daganatot tartalmazó képeket,
+    és végrehajtsa rajtuk a szegmentálási pipeline-t (ROI meghatározás,
+    GVF Snake algoritmus, tüdőmaszkolás), majd az eredményeket .npz fájlokba mentse.
+
+    Attributes:
+        log_signal (pyqtSignal): Jelzés (str) szöveges naplóüzenetek küldéséhez a GUI felé.
+        progress_signal (pyqtSignal): Jelzés (int) a folyamat százalékos állásának küldéséhez (0-100).
+        finished (pyqtSignal): Jelzés a feldolgozás befejezésekor.
+        patient_store (dict): A betegek adatait és szeleteit tartalmazó adatstruktúra.
+        output_dir (str): A kimeneti fájlok mentési könyvtára.
+        lsmc (LSMC): Tüdőmaszkoló (Lung Segmenter) példány.
+        target_labels (list): A keresett daganattípusok címkéi (One-Hot Encodinghoz).
+    """
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
     finished = pyqtSignal()
 
     def __init__(self, patient_store, output_dir="processed_data"):
+        """
+        Inicializálja a TumorProcessor osztályt.
+
+        Args:
+            patient_store (dict): A betöltött adatokat tartalmazó szótár.
+                Kulcs: patient_id, Érték: szeletek listája.
+            output_dir (str, optional): A feldolgozott adatok mentési helye.
+                Alapértelmezett: "processed_data".
+        """
         super().__init__()
         self.patient_store = patient_store
         self.output_dir = output_dir
@@ -29,9 +55,20 @@ class TumorProcessor(QThread):
 
     def prepare_data_for_roi2rect(self, annotations):
         """
-        Átalakítja az XML dict formátumot a roi2rect által várt listás formátumra.
-        Bemenet: [{'bbox': (x1, y1, x2, y2), 'label': 'A'}, ...]
-        Kimenet: [[x1, y1, x2, y2, 1, 0, 0, 0], ...]
+        Átalakítja az XML/dict alapú annotációkat a `roi2rect` függvény által várt formátumra.
+
+        A bemeneti bbox koordinátákat és a szöveges címkét egy lapos listává konvertálja,
+        ahol a címke One-Hot Encoding formátumban szerepel a koordináták után.
+
+        Args:
+            annotations (list of dict): Annotációk listája.
+                Egy elem formátuma: `{'bbox': (xmin, ymin, xmax, ymax), 'label': 'A'}`.
+
+        Returns:
+            list of list or None: A feldolgozott adatsorok listája.
+                Egy sor formátuma: `[xmin, ymin, xmax, ymax, L1, L2, L3, L4]`,
+                ahol L1-L4 a One-Hot kódolt címke.
+                Ha a bemenet üres, `None`-t ad vissza.
         """
         img_data_list = []
         if not annotations:
@@ -58,6 +95,22 @@ class TumorProcessor(QThread):
         return img_data_list
 
     def run(self):
+        """
+        A feldolgozási folyamat (szál) fő belépési pontja.
+
+        Lépések:
+        1. Összegyűjti az összes daganatos szeletet (`has_tumor` flag alapján).
+        2. Betölti az eredeti CT képet (`LungSegmenter.load_file`).
+        3. Előkészíti az annotációkat a `prepare_data_for_roi2rect` segítségével.
+        4. ROI (Region of Interest) és maszk generálása (`project_utils.roi2rect`).
+        5. Aktív kontúr (GVF Snake) futtatása a pontos daganat-határ megtalálásához.
+        6. Poligon maszkok (tumor, ROI, inverz ROI) létrehozása.
+        7. Tüdő parenchyma szegmentálása (`LSMC`).
+        8. Az eredmények mentése tömörített `.npz` formátumban.
+        9. `log_signal` és `progress_signal` emittálása a folyamat során.
+
+        Hiba esetén elkapja a kivételt, naplózza, és folytatja a következő szelettel.
+        """
         # Csak a daganatos képeket gyűjtjük ki feldolgozásra
         tasks = []
         for p_id, slices in self.patient_store.items():

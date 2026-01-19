@@ -14,7 +14,21 @@ from sklearn.metrics import (
 
 
 class XGBoostTrainer:
+    """
+    XGBoost modell tanítását és kiértékelését végző osztály Dask környezetben.
+
+    Támogatja a nagy adathalmazok párhuzamos feldolgozását, a tanító/teszt adatok
+    szétválasztását, valamint a modell mentését és metrikákkal történő elemzését.
+    """
+
     def __init__(self, csv_file_path, resource_folder, config, client):
+        """
+        Args:
+            csv_file_path (str): A bemeneti jellemzőtábla (CSV) elérési útja.
+            resource_folder (str): A modell mentési helye.
+            config (dict): Konfigurációs beállítások (pl. modell neve).
+            client (dask.distributed.Client): A Dask cluster kliense a párhuzamosításhoz.
+        """
         self.csv_file_path = csv_file_path
         self.resource_folder = resource_folder
         self.config = config
@@ -22,7 +36,22 @@ class XGBoostTrainer:
 
     def train(self, log_callback, do_split=True):
         """
-        do_split: Ha True, 80/20 arányban tesztel. Ha False, 100% adaton tanít.
+        A tanítási folyamat végrehajtása.
+
+        Lépések:
+        1. Adatok betöltése Dask DataFrame-be.
+        2. Adattisztítás (felesleges oszlopok eltávolítása).
+        3. Szétválasztás (Split) vagy teljes tanítás kiválasztása.
+        4. XGBoost modell tanítása multi-class paraméterekkel.
+        5. Modell mentése joblib formátumban.
+        6. Opcionális kiértékelés (Accuracy, Recall, F1, RMSE, Confusion Matrix).
+
+        Args:
+            log_callback (function): Függvény a naplóüzenetek megjelenítéséhez (pl. GUI-n).
+            do_split (bool): Ha True, 80/20 arányú tesztelést végez. Ha False, 100%-on tanít.
+
+        Returns:
+            bool: True, ha a folyamat sikeresen lezárult, egyébként False.
         """
         if not os.path.exists(self.csv_file_path):
             log_callback(f"⚠️ Nem található {self.csv_file_path} fájl.")

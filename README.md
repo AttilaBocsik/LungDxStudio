@@ -4,19 +4,25 @@
 LungCancerDetection/
 ├── .github/                # CI/CD (GitHub Actions)
 │   └── workflows/          # tesztelés, build folyamatok
-├── data/                   # Ideiglenes mappák teszteléshez (git-ből kizárva)
+├── Data/                   # Ideiglenes mappák teszteléshez (git-ből kizárva)
 ├── docker/                 # Dockerfile és docker-compose
 ├── docs/                   # Dokumentáció
+├── build/                  # Fejlesztési build folyamatok
+├── dist/                   # Ekészített asztali alkalmazás
 ├── src/                    # A forráskód gyökere
 │   ├── app.py              # Belépési pont (Main)
 │   ├── config.py           # Konfiguráció kezelés (config.json helyett osztály)
 │   ├── core/               # Üzleti logika (a "Model" és "Service" réteg)
-│   │   ├── dicom_handler.py    # Robusztus DICOM betöltés
-        ├── learning
-            ├── feature_extractor.py    # 
-│   │       └── training_logic.py       # 
+│   │   ├── data_prep
+│   │   │   └── annotation_parser.py      # Tumoros CT képek validálása és szegmentálási pipeline végrehajtása
+│   │   ├── processing
+│   │   │   └── tumor_processor.py      # Tumoros CT képek validálása és szegmentálási pipeline végrehajtása
+│   │   ├── learning
+│   │   │   ├── feature_extractor.py    # 
+│   │   │   └── training_logic.py       # 
 │   │   ├── annotation_handler.py # XML feldolgozás (javított)
 │   │   ├── data_manager.py     # A kettő összerendelése (Dicom <-> XML)
+|   |   ├── lsmc.py     # A kettő összerendelése (Dicom <-> XML)
 │   │   └── segmentation/       # Az algoritmusok
 │   │       ├── watershed.py    # (A régi lung_segmentation...py)
 │   │       └── active_contour.py # (A régi project_utils snake része)

@@ -10,14 +10,37 @@ from skimage.filters import sobel
 
 
 class FeatureExtractor:
+    """
+    Képjellemzők kinyeréséért és adathalmaz összeállításáért felelős osztály.
+
+    Ez az osztály .npz fájlokból olvassa be a szegmentált CT képeket, különböző
+    képfeldolgozó szűrőket (Gabor, Sobel, Gauss, stb.) alkalmaz rajtuk pixel-szinten,
+    majd az eredményeket egy strukturált pandas DataFrame-be gyűjti össze a gépi tanuláshoz.
+
+    Attributes:
+        data_dir (str): A feldolgozott (.npz) fájlok forráskönyvtára.
+        gabor_kernels (list): A generált Gabor-szűrő magok listája.
+    """
+
     def __init__(self, data_dir="processed_data"):
+        """
+        Inicializálja a FeatureExtractor-t és legenerálja a szűrőmagokat.
+
+        Args:
+            data_dir (str, optional): A bemeneti adatok mappája. Alapértelmezett: "processed_data".
+        """
         self.data_dir = data_dir
         self.gabor_kernels = self.create_gabor_kernels()
         print(f"✅ FeatureExtractor inicializálva. Gabor kernelek száma: {len(self.gabor_kernels)}")
 
     @staticmethod
     def create_gabor_kernels():
-        """Gabor kernelek generálása."""
+        """
+        Gabor-szűrő magok (kernels) generálása különböző paraméterekkel.
+
+        Returns:
+            list: OpenCV Gabor kernel objektumok listája.
+        """
         kernels = []
         ksize = 3
         thetas = [0, np.pi / 4]
@@ -38,8 +61,13 @@ class FeatureExtractor:
     @staticmethod
     def remove_null_rows(df: pd.DataFrame) -> pd.DataFrame:
         """
-        Üres sorok törlése.
-        JAVÍTVA: Most már biztosan csak a fekete hátteret (0 pixel) szűri ki.
+        Eltávolítja a háttérnek minősülő (0 értékű) pixeleket a táblázatból.
+
+        Args:
+            df (pd.DataFrame): A bemeneti jellemzőtábla.
+
+        Returns:
+            pd.DataFrame: A megtisztított táblázat, amely csak releváns pixeleket tartalmaz.
         """
         if df.empty:
             return df
@@ -60,8 +88,18 @@ class FeatureExtractor:
     @staticmethod
     def select_random_rows(df: pd.DataFrame, selected_values: list, n_limit: int = 2000) -> pd.DataFrame:
         """
-        Downsampling: Meghatározott számú (alapértelmezett 2000) mintát tart meg
-        címkénként (Label) minden egyes képfeldolgozási lépésnél.
+        Véletlenszerű mintavételezés (downsampling) a kiegyensúlyozott adathalmazért.
+
+        Címkénként korlátozza a pixelek számát, hogy a modell ne tanuljon el részrehajlást
+        a túlreprezentált osztályok irányába.
+
+        Args:
+            df (pd.DataFrame): Forrás adatok.
+            selected_values (list): A megtartandó Label értékek listája.
+            n_limit (int): Maximális mintaszám címkénként. Alapértelmezett: 2000.
+
+        Returns:
+            pd.DataFrame: A mintavételezett adathalmaz.
         """
         if df.empty:
             return df
@@ -83,7 +121,20 @@ class FeatureExtractor:
 
     def multi_filter(self, patient_id, img, tumor_type, lung_state):
         """
-        Pixel-szintű szűrők alkalmazása.
+        Különböző digitális képszűrők alkalmazása egy adott képre.
+
+        Létrehozza a jellemzővektorokat: Gabor-válaszok, Sobel-élkeresés,
+        Gauss-simítás, medián szűrő és variancia. Hozzárendeli a megfelelő
+        címkét (Label) a tüdő állapota és a daganat típusa alapján.
+
+        Args:
+            patient_id (str): A páciens azonosítója.
+            img (np.ndarray): A bemeneti kép (pixel array).
+            tumor_type (str): A daganat típusa (A, B, G, D).
+            lung_state (str): A szövet típusa (pl. 'diseased_lungs', 'healthy_soft_tissue').
+
+        Returns:
+            pd.DataFrame: Egy táblázat, ahol minden sor egy pixel, az oszlopok pedig a szűrt értékek.
         """
         # Másolat készítése
         img2 = img.copy()
@@ -141,7 +192,13 @@ class FeatureExtractor:
 
     def extract_features(self):
         """
-        Végigmegy a fájlokon, összerakja a táblázatot és statisztikát készít.
+        A teljes jellemzőkinyerési folyamat vezérlése.
+
+        Végigmegy az összes .npz fájlon, végrehajtja a szűrést, a tisztítást és a
+        mintavételezést, majd összevont statisztikát készít a páciensekről.
+
+        Returns:
+            pd.DataFrame: Az összesített, kevert (shuffled) tanító adathalmaz.
         """
         npz_files = glob.glob(os.path.join(self.data_dir, "*.npz"))
 
