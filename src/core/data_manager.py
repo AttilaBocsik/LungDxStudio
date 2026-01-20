@@ -9,9 +9,8 @@ log = setup_logger("DataManager")
 
 class DataManager:
     """
-    Kezeli a DICOM és XML fájlok indexelését és párosítását.
-    Optimalizált: Csak a metaadatokat olvassa be az indexeléshez.
-    UID (Unique Identifier) alapján párosít, nem (csak) fájlnév alapján.
+    A DICOM képek és XML annotációk indexelését és párosítását kezelő osztály.
+    UID (SOPInstanceUID) alapú keresést használ a fájlnévfüggetlen párosításhoz.
     """
 
     def __init__(self, dicom_dir, annotation_dir):
@@ -28,7 +27,9 @@ class DataManager:
         self.valid_pairs = []  # Lista a (dicom_path, xml_path) párokról
 
     def index_files(self):
-        """Végigszkenneli a mappákat és felépíti az indexeket."""
+        """
+        Végigpásztázza a forrásmappákat, felépíti az indexeket és párosítja a fájlokat.
+        """
         log.info("Indexelés indítása...")
         self._index_dicoms()
         self._index_xmls()
@@ -36,7 +37,10 @@ class DataManager:
         log.info(f"Indexelés kész. Valid párok száma: {len(self.valid_pairs)}")
 
     def _index_dicoms(self):
-        """DICOM fájlok gyors beolvasása (kompatibilitási javítással)."""
+        """
+        A DICOM fájlok gyors indexelése. Csak a metaadatokat olvassa be (pixeladatok nélkül),
+        hogy kinyerje a SOPInstanceUID-t a gyors párosításhoz.
+        """
         files = list(self.dicom_dir.rglob("*.dcm"))
         log.info(f"DICOM fájlok keresése: {len(files)} db talált fájl.")
 
@@ -67,7 +71,10 @@ class DataManager:
             self.xml_map[uid] = f
 
     def _match_pairs(self):
-        """Összepárosítja a DICOM-ot az XML-lel az UID alapján."""
+        """
+        Összeveti a DICOM és XML indexeket, és létrehozza a valid párok listáját,
+        ahol mindkét fájl elérhető.
+        """
         self.valid_pairs = []
 
         for uid, dicom_path in self.dicom_map.items():
@@ -84,8 +91,13 @@ class DataManager:
 
     def get_data_generator(self):
         """
-        Generator függvény, ami egyesével adja vissza a betöltött adatokat.
-        Memóriatakarékos!
+        Python generátor, amely egyesével tölti be a memóriába a képeket és
+        annotációkat a tanításhoz vagy feldolgozáshoz.
+
+        Memóriatakarékos megoldás: csak az aktuálisan kért adatpárt tartja a memóriában.
+
+        Yields:
+            dict: Egy szótár, ami tartalmazza az UID-t, a képtömböt, a boxokat és az osztályokat.
         """
         for dicom_path, xml_path in self.valid_pairs:
             try:

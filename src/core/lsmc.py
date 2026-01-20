@@ -7,9 +7,9 @@ from skimage import measure, segmentation
 
 class LSMC:
     """
-        Lung Segmentation and Mask Correction (LSMC) modul.
-        Felelős a CT szeletek betöltéséért, HU konverzióért és a tüdőmaszk generálásáért.
-        """
+    Lung Segmentation and Mask Correction (LSMC) modul.
+    Felelős a CT szeletek betöltéséért, HU konverzióért és a tüdőmaszk generálásáért.
+    """
 
     def load_scans(self, paths):
         """

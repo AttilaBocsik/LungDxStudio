@@ -6,13 +6,8 @@ from pathlib import Path
 
 class AnnotationHandler:
     """
-    Felelőssége: Egyetlen XML fájl beolvasása és az annotációk kinyerése.
-    Nem tud a fájlrendszerről, csak azt az egy fájlt dolgozza fel, amit kap.
-    Ez váltja ki az xml_preprocessor-t
-    A xml_preprocesssor.py-t átalakítás egy tiszta osztállyá (AnnotationHandler).
-    Kivéve belőle a fájlba írás és a sys.exit()
-    hívásokat (ezek "megölik" a programot hiba esetén, ami tilos egy GUI alkalmazásnál).
-    Helyette kivételeket dob, amit a hívó kezel le.
+    XML alapú annotációk (LIDC-IDRI formátum) feldolgozásáért felelős osztály.
+    Kinyeri a befoglaló téglalapokat (bounding boxes) és az osztálycímkéket.
     """
 
     def __init__(self, num_classes=4):
@@ -22,8 +17,15 @@ class AnnotationHandler:
 
     def parse_xml(self, xml_path: Path):
         """
-        Visszaadja a bounding boxokat és a class-okat.
-        Return: (bounding_boxes, one_hot_classes) vagy (None, None) ha üres/hibás.
+        Beolvas egy XML fájlt és visszaadja a benne található annotációkat.
+
+        Csak az ismert osztályokat (A, B, D, G) dolgozza fel. Validálja a koordinátákat,
+        hogy elkerülje a hibás méretű téglalapokat.
+
+        Args:
+            xml_path (Path): Az XML fájl elérési útja.
+        Returns:
+            tuple: (bounding_boxes tömb, one_hot_classes tömb) vagy (None, None) hiba esetén.
         """
         try:
             tree = ET.parse(xml_path)
@@ -62,7 +64,14 @@ class AnnotationHandler:
         return np.array(bounding_boxes, dtype=np.float32), np.array(one_hot_classes, dtype=np.float32)
 
     def _to_one_hot(self, name):
-        """One-hot kódolást végez (pl. 'B' -> [0, 1, 0, 0])"""
+        """
+        A szöveges osztálynevet ('A', 'B' stb.) bináris vektorrá (one-hot kódolás) alakítja.
+        One-hot kódolást végez (pl. 'B' -> [0, 1, 0, 0])
+        Args:
+            name (str): Az osztály betűjele.
+        Returns:
+            list: One-hot kódolt lista (pl. [1, 0, 0, 0]).
+        """
         vec = [0] * self.num_classes
         if name in self.label_map:
             vec[self.label_map[name]] = 1

@@ -37,3 +37,28 @@ Modulok dokumentációja
    :members:
    :undoc-members:
    :show-inheritance:
+   
+.. automodule:: src.core.segmentation.feature_extractor
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: src.core.segmentation.lung_segmenter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: src.core.annotation_handler
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: src.core.data_manager
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   
+.. automodule:: src.core.lsmc
+   :members:
+   :undoc-members:
+   :show-inheritance:
