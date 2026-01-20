@@ -14,18 +14,18 @@ LungCancerDetection/
 │   ├── config.py           # Konfiguráció kezelés (config.json helyett osztály)
 │   ├── core/               # Üzleti logika (a "Model" és "Service" réteg)
 │   │   ├── data_prep
-│   │   │   └── annotation_parser.py      # Tumoros CT képek validálása és szegmentálási pipeline végrehajtása
+│   │   │   └── annotation_parser.py      # Annotációs fájlok (pl. XML) beolvasása és értelmezése
 │   │   ├── processing
-│   │   │   └── tumor_processor.py      # Tumoros CT képek validálása és szegmentálási pipeline végrehajtása
+│   │   │   └── tumor_processor.py      # Háttérszál (QThread) a daganatos CT szeletek kötegelt feldolgozása
 │   │   ├── learning
-│   │   │   ├── feature_extractor.py    # 
-│   │   │   └── training_logic.py       # 
+│   │   │   ├── feature_extractor.py    # Képjellemzők kinyerése és adathalmaz összeállítása
+│   │   │   └── training_logic.py       # XGBoost modell tanítása és kiértékelése
 │   │   ├── annotation_handler.py # XML feldolgozás (javított)
 │   │   ├── data_manager.py     # A kettő összerendelése (Dicom <-> XML)
-|   |   ├── lsmc.py     # A kettő összerendelése (Dicom <-> XML)
+|   |   ├── lsmc.py     # CT szeletek betöltése, HU konverzió és a tüdőmaszk generálása
 │   │   └── segmentation/       # Az algoritmusok
-│   │       ├── watershed.py    # (A régi lung_segmentation...py)
-│   │       └── active_contour.py # (A régi project_utils snake része)
+│   │       ├── feature_extractor.py    # Képjellemzők kinyerésé, Gabor-szűrők, aktív kontúr (snake) algoritmus
+│   │       └── lung_segmenter.py       # CT felvételeken végzett tüdőszegmentálás
 │   ├── gui/                # A "View" réteg (Modern GUI)
 │   │   ├── main_window.py  # Csak a megjelenítés!
 │   │   ├── widgets/        # Egyedi komponensek (pl. DICOM nézegető widget)

@@ -4,11 +4,26 @@ import numpy as np
 from skimage.filters import gaussian
 from skimage.segmentation import active_contour
 
+
 class FeatureExtractor:
+    """
+    Képjellemzők kinyerésére szolgáló osztály, amely Gabor-szűrőket és
+    aktív kontúr (snake) algoritmust használ a textúraelemzéshez és alakzatfinomításhoz.
+    """
+
     def __init__(self):
+        """
+        Inicializálja a FeatureExtractor osztályt és előre legyártja a Gabor-szűrőmagokat.
+        """
         self.kernels = self._create_gabor_kernels()
 
     def _create_gabor_kernels(self):
+        """
+        Létrehoz egy Gabor-szűrőbankot különböző orientációkkal, skálákkal és hullámhosszakkal.
+
+        Returns:
+            list: OpenCV Gabor-kernelek listája.
+        """
         kernels = []
         for theta in range(2):
             theta = theta / 4. * np.pi
@@ -20,6 +35,15 @@ class FeatureExtractor:
         return kernels
 
     def apply_gabor(self, image):
+        """
+        Alkalmazza a Gabor-szűrőbankot a bemeneti képen.
+
+        Args:
+            image (numpy.ndarray): A bemeneti szürkeárnyalatos kép.
+
+        Returns:
+            numpy.ndarray: A kinyert textúra-jellemzők lapított (reshaped) tömbje.
+        """
         feats = []
         for kernel in self.kernels:
             fimg = cv2.filter2D(image, cv2.CV_8UC3, kernel)
@@ -27,14 +51,18 @@ class FeatureExtractor:
         return np.array(feats)
 
     def refine_with_snake(self, image, bbox):
-        """Active Contour (Snake) finomítás a bounding boxon belül."""
-        # Itt az eredeti project_utils-ban lévő snake logikád fut
         """
-                Ez az algoritmus határozza meg a daganat ROI-ját a területen.
-                :param image: Szürkeárnyalatos opencv kép numpy tömb alakja.
-                :param rectangle_position:  Regions of Interest(ROI) pozicó
-                :return: Illustrative image, Tumor points, ROI points
-                """
+        Aktív kontúr (Snake) algoritmus segítségével finomítja a daganat körvonalát
+        egy megadott befoglaló kereten (bounding box) belül.
+
+        Args:
+            image (numpy.ndarray): Szürkeárnyalatos kép.
+            bbox (dict): A detektált terület koordinátái (xmin, ymin, xmax, ymax).
+
+        Returns:
+            tuple: (final_image, snake_points, init_points) - a rajzolt kép,
+                   a finomított pontok és a kiinduló körvonal pontjai.
+        """
         # image = ds.pixel_array.astype('float32')
         # Let's normalize the image between 0 and 1
         image -= np.min(image)
@@ -74,4 +102,5 @@ class FeatureExtractor:
 
         return final_image, snake_points, init_points
         '''
+        # A logika jelenleg pass-ra van állítva vagy kommentezve van az eredeti fájlban.
         pass

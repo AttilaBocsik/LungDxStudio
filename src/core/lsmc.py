@@ -7,15 +7,21 @@ from skimage import measure, segmentation
 
 class LSMC:
     """
-    Lung Segmentation and Mask Correction (LSMC) modul.
-    Felelős a CT szeletek betöltéséért, HU konverzióért és a tüdőmaszk generálásáért.
-    """
+        Lung Segmentation and Mask Correction (LSMC) modul.
+        Felelős a CT szeletek betöltéséért, HU konverzióért és a tüdőmaszk generálásáért.
+        """
 
     def load_scans(self, paths):
         """
-        Loads scans from a folder and into a list.
-        Parameters: path (Folder path)
-        Returns: slices (List of slices)
+        Beolvassa a szeleteket a megadott útvonalakról és listába rendezi őket.
+
+        A függvény sorba rendezi a képeket az InstanceNumber alapján, és kiszámítja
+        a szeletvastagságot (SliceThickness) a fizikai pozíciók különbségéből.
+
+        Args:
+            paths (list): A DICOM fájlok elérési útvonalainak listája.
+        Returns:
+            list: Sorba rendezett pydicom objektumok listája.
         """
         slices = []
         for path in paths:
@@ -45,9 +51,15 @@ class LSMC:
 
     def get_pixels_hu(self, scans):
         """
-        Converts raw images to Hounsfield Units (HU).
-        Parameters: scans (Raw images)
-        Returns: image (NumPy array)
+        A nyers pixeladatokat Hounsfield-egységekké (HU) alakítja.
+
+        A számítás az alábbi lineáris transzformációval történik: $HU = m \cdot P + b$,
+        ahol 'm' a Rescale Slope, 'b' a Rescale Intercept, 'P' pedig a nyers pixelérték.
+
+        Args:
+            scans (list): Betöltött pydicom szeletek listája.
+        Returns:
+            numpy.ndarray: Az átalakított, HU értékeket tartalmazó 16 bites egész számú tömb.
         """
         image = np.stack([s.pixel_array for s in scans])
         image = image.astype(np.int16)
@@ -70,9 +82,16 @@ class LSMC:
 
     def generate_markers(self, image, hu):
         """
-        Jelölőket generál egy adott képhez (Watershed algoritmushoz).
-        Parameters: image
-        Returns: Internal Marker, External Marker, Watershed Marker
+        Jelölőket (markers) generál a Watershed szegmentáló algoritmus számára.
+
+        Létrehoz egy belső maszkot a tüdőnek (tisztítva a széleket) és egy külső
+        maszkot dilatáció segítségével.
+
+        Args:
+            image (numpy.ndarray): HU egységekre konvertált képtömb.
+            hu (int): Küszöbérték a tüdő elkülönítéséhez.
+        Returns:
+            tuple: (Belső jelölő, Külső jelölő, Kombinált Watershed jelölő).
         """
         # Creation of the internal Marker
         marker_internal = image < hu
@@ -105,10 +124,16 @@ class LSMC:
 
     def make_lungmask(self, slice_dcm_path_list, hu=-400):
         """
-        Szeletfájl-maszk létrehozása. Ez a fő belépési pont.
-        :param slice_dcm_path_list: DICOM fájlok elérési útvonalának listája
-        :param hu: Hounsfield küszöbérték (alapértelmezett: -400)
-        :return: Szelet fájlok maszk tömb
+        A tüdőszegmentálás fő belépési pontja.
+
+        Beölti a szeleteket, HU konverziót végez, majd minden szelethez
+        generál egy belső tüdőmaszkot.
+
+        Args:
+            slice_dcm_path_list (list): DICOM fájlok elérési útvonalai.
+            hu (int): Hounsfield küszöbérték (alapértelmezett: -400).
+        Returns:
+            list: A generált belső maszkok listája.
         """
         train_patient_scans = self.load_scans(slice_dcm_path_list)
         train_patient_images = self.get_pixels_hu(train_patient_scans)
