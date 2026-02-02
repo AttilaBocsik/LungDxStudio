@@ -4,6 +4,7 @@ import os
 import time
 import pydicom
 import shutil
+import dask
 from dask.distributed import Client
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -165,11 +166,26 @@ class DashboardInterface(QFrame):
         if not os.path.exists(self.resource_folder):
             os.makedirs(self.resource_folder)
 
-        # Dask indítása a háttérben
+        # Dask konfiguráció finomhangolása
+        dask.config.set({
+            "distributed.comm.timeouts.connect": "60s",
+            "distributed.comm.timeouts.tcp": "60s",
+            "distributed.worker.memory.target": 0.6,  # 60%-nál kezdjen el üríteni
+            "distributed.worker.memory.spill": 0.7,  # 70%-nál írjon lemezre
+            "distributed.worker.memory.pause": 0.8,  # 80%-nál állítsa meg a feldolgozást
+            "distributed.worker.memory.terminate": 0.95  # 95%-nál lője le, mielőtt az OS tenné
+        })
+
         try:
-            self.dask_client = Client(processes=False)
+            # Csak 1-2 workert engedélyezünk, így marad erőforrás a TumorProcessor-nak is
+            self.dask_client = Client(
+                n_workers=1,
+                threads_per_worker=2,
+                processes=True,
+                memory_limit='4GB'  # Állítsd be a saját RAM-od függvényében
+            )
         except Exception as e:
-            print(f"Dask Error: {e}")
+            self.write_to_log_file(f"Dask Error: {e}")
             self.dask_client = None
 
         self._init_ui()
