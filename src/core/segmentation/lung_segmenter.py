@@ -23,6 +23,51 @@ class LungSegmenter:
     @staticmethod
     def load_file(path):
         """
+        Beolvas egy DICOM fájlt, kezeli a hiányzó metaadatokat és az RGB konverziót.
+        """
+        ds = pydicom.dcmread(str(path))
+
+        # Biztonsági mentés: Ha valahol később a SliceLocation-t keresné a kód,
+        # de nincs a fájlban, adjunk neki egy alapértelmezett értéket, hogy ne szálljon el.
+        if not hasattr(ds, 'SliceLocation'):
+            # Megpróbáljuk az ImagePositionPatient-ből kiszedni a Z-t, ha az sincs, marad a 0.0
+            ds.SliceLocation = ds.ImagePositionPatient[2] if 'ImagePositionPatient' in ds else 0.0
+
+        img_array = ds.pixel_array.astype(np.float32)
+
+        # 1. RGB kezelése
+        if img_array.ndim == 3 and img_array.shape[-1] == 3:
+            img_array = np.dot(img_array[..., :3], [0.2989, 0.5870, 0.1140])
+
+        # 2. Dimenziók tisztítása
+        img_array = np.squeeze(img_array)
+
+        # 3. Spacing adatok biztonságos kezelése
+        spacing_x, spacing_y = (1.0, 1.0)
+        if "PixelSpacing" in ds:
+            spacing_x, spacing_y = map(float, ds.PixelSpacing)
+
+        # Több lépcsős fallback a Z spacingre
+        spacing_z = float(getattr(ds, "SliceThickness",
+                                  getattr(ds, "SpacingBetweenSlices", 1.0)))
+        if spacing_z <= 0: spacing_z = 1.0
+
+        img_sitk = sitk.GetImageFromArray(img_array)
+        img_sitk.SetSpacing((spacing_x, spacing_y, spacing_z))
+
+        # Biztonságos alak kinyerése
+        if img_array.ndim == 2:
+            height, width = img_array.shape
+        else:
+            # Ha még mindig több dimenziós lenne, vegyük az utolsó kettőt
+            height, width = img_array.shape[-2], img_array.shape[-1]
+
+        frame_num = 1
+
+        return ds, img_sitk, img_array, frame_num, width, height, 1
+    '''
+    def load_file(path):
+        """
         Beolvas egy DICOM fájlt, kezeli a fizikai méretezést (spacing) és
         SimpleITK objektumot, valamint numpy tömböt hoz létre belőle.
 
@@ -53,6 +98,7 @@ class LungSegmenter:
                                     else (1, img_array.shape[0], img_array.shape[1]))
 
         return ds, img_sitk, img_array, frame_num, width, height, 1
+    '''
 
     def segment_mask(self, img_array):
         """

@@ -98,7 +98,6 @@ class TumorProcessor(QThread):
                 # 1) Adat beolvasás
                 _, _, origin_img, _, _, _, _ = LungSegmenter.load_file(slice_data['path'])
                 origin_img = origin_img.astype('float32')
-
                 # 2) ROI + Maszk generálás
                 img_data_formatted = self.prepare_data_for_roi2rect(slice_data['annotations'])
                 tumor_mask_ndarray, roi_pos, tumor_label = project_utils.roi2rect(
@@ -149,9 +148,9 @@ class TumorProcessor(QThread):
                     patient_id=p_id
                 )
                 self.log_signal.emit(f"✅ Mentve: {p_id} -> {img_name}")
-
             except Exception as e:
-                self.log_signal.emit(f"❌ HIBA {p_id} -> ({img_name}): {str(e)}")
+                self.log_signal.emit(f"❌ Kihagyva {p_id} -> ({img_name}): {str(e)}")
+                continue
 
             finally:
                 # 8) Memória felszabadítás
