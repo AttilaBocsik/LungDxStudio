@@ -228,22 +228,22 @@ class FeatureExtractor:
                 # A) Beteg tüdő
                 df_orig = self.multi_filter(p_id, img_original, label, lung_state="diseased_lungs")
                 df_orig = self.remove_null_rows(df_orig)
-                df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7], n_limit=4000)
+                df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7], n_limit=2000)
 
                 # B) Egészséges tüdő
                 df_par = self.multi_filter(p_id, img_parenchyma, label, lung_state="healthy_lungs")
                 df_par = self.remove_null_rows(df_par)
-                df_par = self.select_random_rows(df_par, [0, 1], n_limit=4000)
+                df_par = self.select_random_rows(df_par, [0, 1], n_limit=2000)
 
                 # C) Daganat
                 df_tum = self.multi_filter(p_id, img_tumor, label, lung_state="diseased_soft_tissue")
                 df_tum = self.remove_null_rows(df_tum)
-                df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14], n_limit=4000)
+                df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14], n_limit=2000)
 
                 # D) ROI Context
                 df_roi = self.multi_filter(p_id, img_roi_context, label, lung_state="healthy_soft_tissue")
                 df_roi = self.remove_null_rows(df_roi)
-                df_roi = self.select_random_rows(df_roi, [0, 1], n_limit=4000)
+                df_roi = self.select_random_rows(df_roi, [0, 1], n_limit=2000)
 
                 dfs_to_merge.extend([df_orig, df_par, df_tum, df_roi])
 

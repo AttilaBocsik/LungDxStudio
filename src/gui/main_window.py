@@ -102,7 +102,7 @@ class FeatureWorker(QThread):
             f.write(f"[{timestamp}] {message}\n")
 
     def run(self):
-        self.log_signal.emit("📊 Jellemzők kinyerése (CSV exportálás folyamatban)...")
+        self.log_signal.emit("📊 Jellemzők kinyerése (CSV készítés folyamatban)...")
         try:
             extractor = FeatureExtractor(data_dir="processed_data")
             df = extractor.extract_features()
@@ -207,7 +207,7 @@ class DashboardInterface(QFrame):
         # Folyamat gombok (sorrendben)
         self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "1. Indexelés")
         self.process_btn = PrimaryPushButton(FluentIcon.SYNC, "2. Feldolgozás")
-        self.export_btn = PrimaryPushButton(FluentIcon.SAVE, "3. CSV Export")
+        self.export_btn = PrimaryPushButton(FluentIcon.SAVE, "3. CSV készítés")
 
         # Tanítás szekció (Kapcsoló + Gomb)
         self.train_mode_layout = QVBoxLayout()
@@ -219,7 +219,7 @@ class DashboardInterface(QFrame):
         self.train_mode_layout.addWidget(BodyLabel("Tanítási mód:"))
         self.train_mode_layout.addWidget(self.test_mode_switch)
 
-        self.train_btn = PrimaryPushButton(FluentIcon.ROBOT, "4. Tanítás")
+        self.train_btn = PrimaryPushButton(FluentIcon.ROBOT, "4. Model tanítás")
 
         # Gombok tiltása az elején
         for btn in [self.run_btn, self.process_btn, self.export_btn, self.train_btn]:
@@ -289,8 +289,15 @@ class DashboardInterface(QFrame):
         self.worker.log_signal.connect(self.log_display.append)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.data_ready_signal.connect(lambda data: setattr(self, 'patient_store', data))
-        self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
+        # self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
+        self.worker.finished.connect(self.on_index_finished)
         self.worker.start()
+
+    def on_index_finished(self):
+        """Eseménykezelő, ami akkor fut le, ha az indexelés véget ért."""
+        self.run_btn.setEnabled(False)
+        self.process_btn.setEnabled(True)
+        self.log_display.append("➡️ Kész! Mehet a feldolgozás.")
 
     def start_processing(self):
         self.process_btn.setEnabled(False)
@@ -298,19 +305,31 @@ class DashboardInterface(QFrame):
         self.processor = TumorProcessor(self.patient_store)
         self.processor.log_signal.connect(self.log_display.append)
         self.processor.progress_signal.connect(self.progress_bar.setValue)
-        self.processor.finished.connect(lambda: self.export_btn.setEnabled(True))
+        # self.processor.finished.connect(lambda: self.export_btn.setEnabled(True))
+        self.processor.finished.connect(self.on_processing_finished)
         self.processor.start()
 
+    def on_processing_finished(self):
+        """Eseménykezelő, ami akkor fut le, ha az feldolgozás véget ért."""
+        self.run_btn.setEnabled(False)
+        self.process_btn.setEnabled(False)
+        self.export_btn.setEnabled(True)
+        self.log_display.append("➡️ Kész! Mehet a CSV készítés.")
+
     def start_export(self):
+        self.run_btn.setEnabled(False)
+        self.process_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
-        self.log_display.append("\n--- 3. CSV EXPORT ---")
+        self.log_display.append("\n--- 3. CSV készítés ---")
         self.feat_worker = FeatureWorker()
         self.feat_worker.log_signal.connect(self.log_display.append)
         self.feat_worker.finished.connect(self.on_export_finished)
         self.feat_worker.start()
 
     def on_export_finished(self):
-        self.export_btn.setEnabled(True)
+        self.run_btn.setEnabled(False)
+        self.process_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
         self.train_btn.setEnabled(True)  # Itt aktiválódik a 4. lépés
         self.log_display.append("➡️ Kész! Mehet a Modell Tanítás.")
 
@@ -340,12 +359,43 @@ class DashboardInterface(QFrame):
         self.train_worker.start()
 
     def on_training_finished(self, success):
-        self.train_btn.setEnabled(True)
+        # 1. Alaphelyzetbe állítás (Reset gombok)
+        self.run_btn.setEnabled(True)  # Újra elindítható a folyamat az elejéről
+        self.process_btn.setEnabled(False)
+        self.export_btn.setEnabled(False)
+        self.train_btn.setEnabled(False)
+        self.progress_bar.setValue(0)  # Progress bar visszaállítása
+
         if success:
-            QMessageBox.information(self, "Siker", "A modell tanítása sikeresen befejeződött!")
+            self.log_display.append("\n🧹 Átmeneti fájlok takarítása...")
+            self.cleanup_temp_files()
+            QMessageBox.information(self, "Siker", "A modell tanítása sikeres! A köztes adatok törlésre kerültek.")
         else:
+            self.log_display.append("\n⚠️ A tanítás nem volt sikeres, a fájlok megmaradtak a hibakereséshez.")
             QMessageBox.warning(self, "Hiba", "Hiba történt a tanítás során.")
 
+    def cleanup_temp_files(self):
+        """Törli a processed_data mappát és a generált CSV fájlt."""
+        # 1. CSV törlése
+        csv_file = "training_data_pixelwise.csv"
+        try:
+            if os.path.exists(csv_file):
+                os.remove(csv_file)
+                self.log_display.append(f"✅ Törölve: {csv_file}")
+        except Exception as e:
+            self.log_display.append(f"❌ Nem sikerült a CSV törlése: {e}")
+
+        # 2. processed_data mappa tartalmának törlése
+        processed_dir = "processed_data"
+        try:
+            if os.path.exists(processed_dir):
+                # shutil.rmtree törli a mappát és minden tartalmát
+                shutil.rmtree(processed_dir)
+                # Opcionális: Hozzuk létre üresen, ha a program struktúrája elvárja
+                os.makedirs(processed_dir)
+                self.log_display.append(f"✅ Törölve: {processed_dir} tartalma")
+        except Exception as e:
+            self.log_display.append(f"❌ Hiba a mappa takarításakor: {e}")
 
 class MainWindow(MSFluentWindow):
     def __init__(self):

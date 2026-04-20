@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import joblib
 import numpy as np
 import dask.dataframe as dd
@@ -104,14 +105,20 @@ class XGBoostTrainer:
 
             booster = model["booster"]
 
-            # Mentés
-            # Ha végleges, adjunk egy '_final' jelzést a fájlnévhez (opcionális, de hasznos)
-            base_name = self.config['model-name']
+            # Mentés előkészítése
+            full_name = self.config['model-name']
+            name_part, extension = os.path.splitext(full_name)  # pl. ('lung_dx_model', '.pkl')
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # pl. '20260420_102530'
+
             if not do_split:
-                base_name = base_name.replace(".pkl", "_final.pkl")
+                # Végleges mód esetén: név_időbélyeg_final.pkl
+                base_name = f"{name_part}_{timestamp}_final{extension}"
+            else:
+                # Opcionálisan a teszt módhoz is adhatsz időbélyeget:
+                base_name = f"{name_part}_{timestamp}_test{extension}"
 
             pkl_path = f"{self.resource_folder}/{base_name}"
-
+            
             if os.path.exists(pkl_path):
                 os.remove(pkl_path)
 

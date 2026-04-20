@@ -65,6 +65,10 @@ The application requires Python 3.12.9 and specialized libraries.
 pip install PyQt6 PyQt6-Fluent-Widgets
 ```
 
+```bash
+pip install -r requirements.txt
+```
+
 #### CT Imaging Technical Information
 - SliceThickness: Represents vertical resolution.
 - PixelSpacing: Defines the physical area covered by a single pixel (e.g., 0.7mm x 0.7mm).
