@@ -53,7 +53,7 @@ class LSMC:
         """
         A nyers pixeladatokat Hounsfield-egységekké (HU) alakítja.
 
-        A számítás az alábbi lineáris transzformációval történik: $HU = m \cdot P + b$,
+        A számítás az alábbi lineáris transzformációval történik: $HU = m cdot P + b$,
         ahol 'm' a Rescale Slope, 'b' a Rescale Intercept, 'P' pedig a nyers pixelérték.
 
         Args:

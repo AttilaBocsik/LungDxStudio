@@ -35,3 +35,4 @@ matplotlib>=3.3
 sphinx
 sphinx-rtd-theme
 pyinstaller
+parquet

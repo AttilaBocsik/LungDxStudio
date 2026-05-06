@@ -108,9 +108,14 @@ class FeatureWorker(QThread):
             df = extractor.extract_features()
 
             if df is not None and not df.empty:
-                csv_path = "training_data_pixelwise.csv"
-                extractor.save_to_csv(df, csv_path)
-                msg = f"✅ CSV mentve: {csv_path} ({len(df)} sor)"
+                print(f"CSV elötti DataFrame típusa: {type(df)}")
+                df.to_parquet()
+                parquet_path = "training_data_pixelwise.parquet"
+                extractor.save_to_parquet(df, parquet_path)
+                msg = f"✅ Parquet mentve: {parquet_path} ({len(df)} sor)"
+                # csv_path = "training_data_pixelwise.csv"
+                # extractor.save_to_csv(df, csv_path)
+                # msg = f"✅ CSV mentve: {csv_path} ({len(df)} sor)"
                 self.log_signal.emit(msg)
                 self.write_to_log_file(msg)
             else:

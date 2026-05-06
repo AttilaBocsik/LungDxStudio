@@ -4,7 +4,6 @@ import joblib
 import numpy as np
 import dask.dataframe as dd
 from dask_ml.model_selection import train_test_split
-import xgboost as xgb
 from xgboost import dask as dxgb
 
 # Kiértékelési metrikák
@@ -22,15 +21,15 @@ class XGBoostTrainer:
     szétválasztását, valamint a modell mentését és metrikákkal történő elemzését.
     """
 
-    def __init__(self, csv_file_path, resource_folder, config, client):
+    def __init__(self, in_file_path, resource_folder, config, client):
         """
         Args:
-            csv_file_path (str): A bemeneti jellemzőtábla (CSV) elérési útja.
+            in_file_path (str): A bemeneti jellemzőtábla (CSV) elérési útja.
             resource_folder (str): A modell mentési helye.
             config (dict): Konfigurációs beállítások (pl. modell neve).
             client (dask.distributed.Client): A Dask cluster kliense a párhuzamosításhoz.
         """
-        self.csv_file_path = csv_file_path
+        self.in_file_path = in_file_path
         self.resource_folder = resource_folder
         self.config = config
         self.client = client
@@ -54,14 +53,15 @@ class XGBoostTrainer:
         Returns:
             bool: True, ha a folyamat sikeresen lezárult, egyébként False.
         """
-        if not os.path.exists(self.csv_file_path):
-            log_callback(f"⚠️ Nem található {self.csv_file_path} fájl.")
+        if not os.path.exists(self.in_file_path):
+            log_callback(f"⚠️ Nem található {self.in_file_path} fájl.")
             return False
 
         try:
             log_callback(f"⏳ Adatok betöltése a {'Teszt' if do_split else 'Végleges'} módhoz...")
-            origin_ddf = dd.read_csv(self.csv_file_path)
-
+            # origin_ddf = dd.read_csv(self.in_file_path)
+            origin_ddf = dd.read_parquet(self.in_file_path)
+            print(origin_ddf.head())
             # Tisztítás
             for col in ['Unnamed: 0.1', 'Unnamed: 0']:
                 if col in origin_ddf.columns:

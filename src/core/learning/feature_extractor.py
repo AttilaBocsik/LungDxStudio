@@ -290,3 +290,11 @@ class FeatureExtractor:
             print(f"💾 Mentve: {output_path}")
         else:
             print("⚠️ Nincs mit menteni (üres DataFrame).")
+
+    def save_to_parquet(self, df, parquet_path):
+        """Mentés Parquet-be."""
+        if df is not None and not df.empty:
+            df.to_parquet(parquet_path, index=False)
+            print(f"💾 Mentve: {parquet_path}")
+        else:
+            print("⚠️ Nincs mit menteni (üres DataFrame).")
