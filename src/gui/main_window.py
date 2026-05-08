@@ -102,14 +102,12 @@ class FeatureWorker(QThread):
             f.write(f"[{timestamp}] {message}\n")
 
     def run(self):
-        self.log_signal.emit("📊 Jellemzők kinyerése (CSV készítés folyamatban)...")
+        self.log_signal.emit("📊 Jellemzők kinyerése (Parquet készítés folyamatban)...")
         try:
             extractor = FeatureExtractor(data_dir="processed_data")
             df = extractor.extract_features()
 
             if df is not None and not df.empty:
-                print(f"CSV elötti DataFrame típusa: {type(df)}")
-                df.to_parquet()
                 parquet_path = "training_data_pixelwise.parquet"
                 extractor.save_to_parquet(df, parquet_path)
                 msg = f"✅ Parquet mentve: {parquet_path} ({len(df)} sor)"
@@ -212,7 +210,7 @@ class DashboardInterface(QFrame):
         # Folyamat gombok (sorrendben)
         self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "1. Indexelés")
         self.process_btn = PrimaryPushButton(FluentIcon.SYNC, "2. Feldolgozás")
-        self.export_btn = PrimaryPushButton(FluentIcon.SAVE, "3. CSV készítés")
+        self.export_btn = PrimaryPushButton(FluentIcon.SAVE, "3. Parquet fájl készítés")
 
         # Tanítás szekció (Kapcsoló + Gomb)
         self.train_mode_layout = QVBoxLayout()
@@ -319,13 +317,13 @@ class DashboardInterface(QFrame):
         self.run_btn.setEnabled(False)
         self.process_btn.setEnabled(False)
         self.export_btn.setEnabled(True)
-        self.log_display.append("➡️ Kész! Mehet a CSV készítés.")
+        self.log_display.append("➡️ Kész! Mehet a Parquet fájl készítés.")
 
     def start_export(self):
         self.run_btn.setEnabled(False)
         self.process_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
-        self.log_display.append("\n--- 3. CSV készítés ---")
+        self.log_display.append("\n--- 3. Parquet fájl készítés ---")
         self.feat_worker = FeatureWorker()
         self.feat_worker.log_signal.connect(self.log_display.append)
         self.feat_worker.finished.connect(self.on_export_finished)
@@ -354,7 +352,7 @@ class DashboardInterface(QFrame):
         self.train_worker = TrainingWorker(
             XGBoostTrainer,
             do_split=do_split,
-            csv_file_path="training_data_pixelwise.csv",
+            csv_file_path="training_data_pixelwise.parquet",
             resource_folder=self.resource_folder,
             config=self.config,
             client=self.dask_client
@@ -382,13 +380,13 @@ class DashboardInterface(QFrame):
     def cleanup_temp_files(self):
         """Törli a processed_data mappát és a generált CSV fájlt."""
         # 1. CSV törlése
-        csv_file = "training_data_pixelwise.csv"
+        csv_file = "training_data_pixelwise.parquet"
         try:
             if os.path.exists(csv_file):
                 os.remove(csv_file)
                 self.log_display.append(f"✅ Törölve: {csv_file}")
         except Exception as e:
-            self.log_display.append(f"❌ Nem sikerült a CSV törlése: {e}")
+            self.log_display.append(f"❌ Nem sikerült a Parquet fájl törlése: {e}")
 
         # 2. processed_data mappa tartalmának törlése
         processed_dir = "processed_data"

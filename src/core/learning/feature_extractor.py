@@ -272,7 +272,7 @@ class FeatureExtractor:
                 print(f"👤 Páciens: {p_name:<20} | Összes pixel: {count:>6} | Daganatos: {tumor_pixels:>6}")
 
             print("-" * 50)
-            print(f"📈 ÖSSZESEN: {len(df_all)} sor a CSV fájlban.")
+            print(f"📈 ÖSSZESEN: {len(df_all)} sor a Parquet fájlban.")
             print("=" * 50 + "\n")
 
             # Keverés (Shuffle)
