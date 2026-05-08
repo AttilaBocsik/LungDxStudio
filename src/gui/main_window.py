@@ -417,12 +417,20 @@ class MainWindow(MSFluentWindow):
             self.dashboard.dask_client.close()
         event.accept()
 
+class NullWriter:
+    """Megakadályozza a 'NoneType' hibát GUI módban."""
+    def write(self, arg): pass
+    def flush(self): pass
 
 if __name__ == '__main__':
     # PyInstaller és Multiprocessing támogatás
     from multiprocessing import freeze_support
-
     freeze_support()
+    # Átirányítás, ha nincs konzol
+    if sys.stdout is None:
+        sys.stdout = NullWriter()
+    if sys.stderr is None:
+        sys.stderr = NullWriter()
 
     app = QApplication(sys.argv)
     w = MainWindow()
