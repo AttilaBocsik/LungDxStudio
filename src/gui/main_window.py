@@ -419,17 +419,47 @@ class NullWriter:
     def write(self, arg): pass
     def flush(self): pass
 
+
 if __name__ == '__main__':
-    # PyInstaller és Multiprocessing támogatás
+    # 1. PyInstaller és Multiprocessing támogatás (ez kötelező az XGBoost/Dask miatt)
     from multiprocessing import freeze_support
+
     freeze_support()
-    # Átirányítás, ha nincs konzol
+
+    # 2. Konzolos kimenet kezelése
+    # Csak akkor irányítjuk át, ha tényleg nincs konzol (windowed mód),
+    # de a tesztelés idejére (console=True a spec-ben) hagyni kell a rendes kimenetet.
     if sys.stdout is None:
         sys.stdout = NullWriter()
     if sys.stderr is None:
         sys.stderr = NullWriter()
 
-    app = QApplication(sys.argv)
-    w = MainWindow()
-    w.show()
-    sys.exit(app.exec())
+    # 3. Alkalmazás indítása hibakezeléssel
+    try:
+        app = QApplication(sys.argv)
+
+        # Itt történik a példányosítás - ha itt hiba van, a 'except' elkapja
+        print("Inicilaizálás: MainWindow...")
+        w = MainWindow()
+        w.show()
+
+        print("Alkalmazás fut...")
+        exit_code = app.exec()
+        sys.exit(exit_code)
+
+    except Exception as e:
+        # Ha bármi hiba történik az indításkor, ez kiírja a pontos okot
+        print("\n" + "=" * 50)
+        print("KRITIKUS HIBA AZ INDÍTÁSKOR:")
+        print(f"Hiba típusa: {type(e).__name__}")
+        print(f"Üzenet: {e}")
+        print("=" * 50)
+
+        # A traceback megmutatja, pontosan melyik sorban szállt el a kód
+        import traceback
+
+        traceback.print_exc()
+
+        # Megállítjuk a folyamatot, hogy el tudd olvasni a hibát a fekete ablakban
+        print("\n" + "=" * 50)
+        input("A hiba megjelenítése után nyomj ENTER-t a bezáráshoz...")

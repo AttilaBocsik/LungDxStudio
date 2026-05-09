@@ -4,43 +4,34 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
-# Növeljük a rekurziós limitet, mert a Dask elemzésekor a Python néha kifut belőle
+# Növeljük a limitet az összetett importok miatt
 sys.setrecursionlimit(5000)
 
 block_cipher = None
 
-# 1. Adatok és metaadatok gyűjtése
 datas = []
 binaries = []
 hiddenimports = [
     'sklearn.metrics',
-    'sklearn.utils._cython_blas',
-    'sklearn.neighbors.typedefs',
     'dask.dataframe',
     'dask.distributed',
-    'xgboost',
-    'scipy.special.cython_special',
-    'pydicom.encoders.gdcm',
-    'pydicom.encoders.pylibjpeg',
-    'pandas._libs.tslibs.timedeltas',
+    'dask_expr',          # ÚJ: A dask új motorja
+    'dask_expr._expr',    # ÚJ: Specifikus almodulok
     'pyarrow',
+    'xgboost',
+    'pandas',
     'src.core.learning.training_logic',
     'src.core.data_manager',
-    'src.core.processing.tumor_processor',
-    'src.core.learning.feature_extractor',
-    'src.core.data_prep.annotation_parser'
+    'src.core.processing.tumor_processor'
 ]
 
-# KRITIKUS: A metaadatok másolása. E nélkül a Dask és a PyArrow nem fogják látni egymást!
-datas += copy_metadata('pandas')
-datas += copy_metadata('pyarrow')
-datas += copy_metadata('dask')
-datas += copy_metadata('numpy')
-datas += copy_metadata('scikit-learn')
-datas += copy_metadata('xgboost')
+# Metaadatok kényszerítése - e nélkül a Dask nem látja a verziókat
+packages_to_metadata = ['pandas', 'pyarrow', 'dask', 'xgboost', 'scikit-learn']
+for pkg in packages_to_metadata:
+    datas += copy_metadata(pkg)
 
-# 2. Csomagok teljes begyűjtése
-packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'pandas', 'sklearn', 'pyarrow']
+# Teljes csomag begyűjtés
+packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'dask_expr', 'pyarrow']
 for package in packages_to_collect:
     tmp_ret = collect_all(package)
     datas += tmp_ret[0]
@@ -52,7 +43,7 @@ a = Analysis(
     pathex=[os.getcwd()],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=list(set(hiddenimports)), # Duplikációk kiszűrése
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -71,11 +62,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='LungDxStudioPro',
-    debug=False, # Ha még mindig nem indul, állítsd True-ra, hogy lásd a konzolhibát!
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True, # IDEIGLENESEN állítsd True-ra! Így látni fogod a hibaüzenetet, ha elszáll.
+    console=True, # Hagyd TRUE-n, amíg nem látjuk a GUI-t!
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
