@@ -41,6 +41,8 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
+        # Beállítjuk a pythonpath-t a build idejére
+        $env:PYTHONPATH = ".;$env:PYTHONPATH" 
         pyinstaller build.spec
 
     - name: Archive Windows Build

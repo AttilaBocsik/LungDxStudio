@@ -19,10 +19,7 @@ from src.core.learning.feature_extractor import FeatureExtractor
 from src.core.data_prep.annotation_parser import AnnotationParser
 
 # Tanítási logika importálása
-try:
-    from src.core.learning.training_logic import XGBoostTrainer
-except ImportError:
-    XGBoostTrainer = None
+from src.core.learning.training_logic import XGBoostTrainer
 
 
 # --- 1. Worker az indexeléshez ---
