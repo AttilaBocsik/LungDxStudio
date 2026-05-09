@@ -2,11 +2,14 @@
 
 import sys
 import os
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, copy_metadata
+
+# Növeljük a rekurziós limitet, mert a Dask elemzésekor a Python néha kifut belőle
+sys.setrecursionlimit(5000)
 
 block_cipher = None
 
-# 1. Összegyűjtjük a kritikus csomagok erőforrásait és metaadatait
+# 1. Adatok és metaadatok gyűjtése
 datas = []
 binaries = []
 hiddenimports = [
@@ -20,7 +23,7 @@ hiddenimports = [
     'pydicom.encoders.gdcm',
     'pydicom.encoders.pylibjpeg',
     'pandas._libs.tslibs.timedeltas',
-    'pyarrow', # Explicit hozzáadás
+    'pyarrow',
     'src.core.learning.training_logic',
     'src.core.data_manager',
     'src.core.processing.tumor_processor',
@@ -28,16 +31,16 @@ hiddenimports = [
     'src.core.data_prep.annotation_parser'
 ]
 
-# A csomagok listája, amiknek a metaadataira (verzióinfó) a Dask-nak szüksége van
-packages_to_collect = [
-    'qfluentwidgets',
-    'xgboost',
-    'dask',
-    'pandas',
-    'sklearn',
-    'pyarrow' # ÚJ: Ezt is be kell gyűjteni!
-]
+# KRITIKUS: A metaadatok másolása. E nélkül a Dask és a PyArrow nem fogják látni egymást!
+datas += copy_metadata('pandas')
+datas += copy_metadata('pyarrow')
+datas += copy_metadata('dask')
+datas += copy_metadata('numpy')
+datas += copy_metadata('scikit-learn')
+datas += copy_metadata('xgboost')
 
+# 2. Csomagok teljes begyűjtése
+packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'pandas', 'sklearn', 'pyarrow']
 for package in packages_to_collect:
     tmp_ret = collect_all(package)
     datas += tmp_ret[0]
@@ -68,11 +71,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='LungDxStudioPro',
-    debug=False,
+    debug=False, # Ha még mindig nem indul, állítsd True-ra, hogy lásd a konzolhibát!
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True, # IDEIGLENESEN állítsd True-ra! Így látni fogod a hibaüzenetet, ha elszáll.
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
