@@ -7,7 +7,6 @@ from PyInstaller.utils.hooks import collect_all
 block_cipher = None
 
 # 1. Összegyűjtjük a kritikus csomagok erőforrásait és metaadatait
-# A pandas és sklearn azért fontos, mert a Dask és az XGBoost ellenőrzi a verzióikat
 datas = []
 binaries = []
 hiddenimports = [
@@ -21,7 +20,6 @@ hiddenimports = [
     'pydicom.encoders.gdcm',
     'pydicom.encoders.pylibjpeg',
     'pandas._libs.tslibs.timedeltas',
-    # Saját modulok kényszerítése, mert a try-except blokk elrejtheti őket
     'src.core.learning.training_logic',
     'src.core.data_manager',
     'src.core.processing.tumor_processor',
@@ -29,7 +27,7 @@ hiddenimports = [
     'src.core.data_prep.annotation_parser'
 ]
 
-# A collect_all segít a .dist-info mappák (metaadatok) átmásolásában is
+# A collect_all segít a .dist-info mappák (metaadatok) átmásolásában
 packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'pandas', 'sklearn']
 for package in packages_to_collect:
     tmp_ret = collect_all(package)
@@ -38,7 +36,7 @@ for package in packages_to_collect:
     hiddenimports += tmp_ret[2]
 
 a = Analysis(
-    ['src/gui/main_window.py'], # Belépési pont [cite: 2]
+    ['src/gui/main_window.py'],
     pathex=[os.getcwd()],
     binaries=binaries,
     datas=datas,
@@ -62,10 +60,10 @@ exe = EXE(
     exclude_binaries=True,
     name='LungDxStudioPro',
     debug=False,
-    bootloader_ignore_signals=False, [cite: 3]
+    bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False, # GUI mód, nincs fekete ablak [cite: 3]
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
