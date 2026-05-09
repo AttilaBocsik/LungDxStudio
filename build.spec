@@ -1,24 +1,27 @@
-# build.spec
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_all
 import sys
 import os
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-# Összegyűjtjük a qfluentwidgets és xgboost rejtett fájljait/függőségeit
+# 1. Összegyűjtjük a kritikus csomagok erőforrásait és metaadatait
+# A pandas és sklearn azért fontos, mert a Dask és az XGBoost ellenőrzi a verzióikat
 datas = []
 binaries = []
 hiddenimports = [
     'sklearn.metrics',
+    'sklearn.utils._cython_blas',
+    'sklearn.neighbors.typedefs',
     'dask.dataframe',
     'dask.distributed',
     'xgboost',
     'scipy.special.cython_special',
     'pydicom.encoders.gdcm',
     'pydicom.encoders.pylibjpeg',
-    # Ezeket add hozzá mindenképp:
+    'pandas._libs.tslibs.timedeltas',
+    # Saját modulok kényszerítése, mert a try-except blokk elrejtheti őket
     'src.core.learning.training_logic',
     'src.core.data_manager',
     'src.core.processing.tumor_processor',
@@ -26,8 +29,8 @@ hiddenimports = [
     'src.core.data_prep.annotation_parser'
 ]
 
-# QFluentWidgets és egyéb csomagok erőforrásainak begyűjtése
-packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask']
+# A collect_all segít a .dist-info mappák (metaadatok) átmásolásában is
+packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'pandas', 'sklearn']
 for package in packages_to_collect:
     tmp_ret = collect_all(package)
     datas += tmp_ret[0]
@@ -35,8 +38,8 @@ for package in packages_to_collect:
     hiddenimports += tmp_ret[2]
 
 a = Analysis(
-    ['src/gui/main_window.py'],  # A belépési pont
-    pathex=[os.getcwd()],        # Fontos: a gyökérkönyvtár legyen a path-ban
+    ['src/gui/main_window.py'], # Belépési pont [cite: 2]
+    pathex=[os.getcwd()],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -59,10 +62,10 @@ exe = EXE(
     exclude_binaries=True,
     name='LungDxStudioPro',
     debug=False,
-    bootloader_ignore_signals=False,
+    bootloader_ignore_signals=False, [cite: 3]
     strip=False,
     upx=True,
-    console=False, # True, ha látni akarod a hibaüzeneteket konzolon, False ha csak GUI
+    console=False, # GUI mód, nincs fekete ablak [cite: 3]
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
