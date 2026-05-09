@@ -18,7 +18,7 @@ hiddenimports = [
     'scipy.special.cython_special',
     'pydicom.encoders.gdcm',
     'pydicom.encoders.pylibjpeg',
-    # ÚJ: Explicit módon hozzáadjuk a hiányzó modulokat
+    # Ezeket add hozzá mindenképp:
     'src.core.learning.training_logic',
     'src.core.data_manager',
     'src.core.processing.tumor_processor',

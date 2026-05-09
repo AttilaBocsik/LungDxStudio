@@ -40,9 +40,9 @@ jobs:
         pip install pyinstaller
 
     - name: Build with PyInstaller
+      env:
+        PYTHONPATH: ${{ github.workspace }}
       run: |
-        # Beállítjuk a pythonpath-t a build idejére
-        $env:PYTHONPATH = ".;$env:PYTHONPATH" 
         pyinstaller build.spec
 
     - name: Archive Windows Build
