@@ -91,8 +91,9 @@ class TumorProcessor(QThread):
         self.log_signal.emit(f"⚙️ Feldolgozás indítása: {total} daganatos szelet (Optimalizált mód)...")
 
         for i, slice_data in enumerate(tasks):
-            img_name = slice_data['img_name']
-            p_id = slice_data['patient_id']
+            # Biztonságos lekérés: ha nincs 'img_name', generálunk egyet a fájlnévből
+            img_name = slice_data.get('img_name', os.path.basename(slice_data.get('path', f'slice_{i}.dcm')))
+            p_id = slice_data.get('patient_id', 'Unknown')
 
             try:
                 # 1) Adat beolvasás

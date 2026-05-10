@@ -69,6 +69,25 @@ pip install PyQt6 PyQt6-Fluent-Widgets
 pip install -r requirements.txt
 ```
 
+#### Running
+1. Nyiss egy PowerShell-t vagy parancssort a projekt mappájában.
+2. Hozz létre egy virtuális környezetet (ajánlott):PowerShell
+```bash
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+3. Telepítsd a függőségeket a requirements.txt alapján:  
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+4Futtasd a PyInstaller-t a konfigurációs fájllal:
+```bash
+pyinstaller build.spec
+```
+
 #### CT Imaging Technical Information
 - SliceThickness: Represents vertical resolution.
 - PixelSpacing: Defines the physical area covered by a single pixel (e.g., 0.7mm x 0.7mm).
