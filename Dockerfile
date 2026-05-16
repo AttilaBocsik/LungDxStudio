@@ -22,4 +22,4 @@ COPY . .
 
 ENV PYTHONPATH="${PYTHONPATH}:/app"
 
-CMD ["python", "main_window.py"]
+CMD ["python", "src/gui/main_window.py"]

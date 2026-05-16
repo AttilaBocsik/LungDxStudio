@@ -30,7 +30,7 @@ hiddenimports = [
     'src.core.learning.training_logic'
 ]
 
-packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'dask_expr', 'pyarrow', 'pandas']
+packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'dask_expr', 'pyarrow', 'pandas', 'SimpleITK', 'skimage']
 
 for package in packages_to_collect:
     tmp_ret = collect_all(package)

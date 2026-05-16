@@ -20,11 +20,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Disable Git auto-gc
+      run: git config --global gc.auto 0
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11' # <-- Itt a kulcs: 3.11 kell a qfluentwidgets-hez
         cache: 'pip'
+        cache-dependency-path: 'requirements.txt'
 
     - name: Install system dependencies (Linux)
       if: runner.os == 'Linux'
