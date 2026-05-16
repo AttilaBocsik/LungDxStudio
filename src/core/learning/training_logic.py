@@ -65,9 +65,14 @@ class XGBoostTrainer:
             for col in ['Unnamed: 0.1', 'Unnamed: 0']:
                 if col in origin_ddf.columns:
                     origin_ddf = origin_ddf.drop(columns=[col])
-
+            # Adatok fixálása a memóriában a partíciós hibák elkerülésére
+            origin_ddf = origin_ddf.persist()
             y = origin_ddf['Label'].astype('int')
             X = origin_ddf.drop(['Label', 'patient_id'], axis=1)
+            # Biztonsági ellenőrzés és javítás
+            if X.npartitions != y.npartitions:
+                log_callback(f"🔧 Partíciók javítása: {X.npartitions} vs {y.npartitions}")
+                y = y.repartition(npartitions=X.npartitions)
 
             # --- Mód választás: Split vagy Full ---
             if do_split:

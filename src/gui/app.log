@@ -1,0 +1,6 @@
+2026-05-15 08:15:44 [INFO] Indexelés indítása...
+2026-05-15 08:15:45 [INFO] DICOM fájlok keresése: 4556 db talált fájl.
+2026-05-15 08:17:19 [INFO] XML fájlok keresése: 31562 db talált fájl.
+2026-05-15 08:17:19 [INFO] Indexelés kész. Valid párok száma: 926
+[2026-05-15 08:17:23] 🚀 Metaadatok indexelése 926 szelethez...
+[2026-05-15 12:06:52] ✅ Parquet mentve: training_data_pixelwise.parquet (5967683 sor)
