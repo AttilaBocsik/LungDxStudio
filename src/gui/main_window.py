@@ -198,7 +198,7 @@ def run_application():
                         n_workers=1,
                         threads_per_worker=2,
                         processes=True,
-                        memory_limit='5GB'  # Állítsd be a saját RAM-od függvényében
+                        memory_limit='8GB'  # Állítsd be a saját RAM-od függvényében
                     )
                 except Exception as e:
                     self.write_to_log_file(f"Dask Error: {e}")

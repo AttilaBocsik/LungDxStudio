@@ -1,10 +1,14 @@
 import os
 from datetime import datetime
-import joblib
 import numpy as np
 import dask.dataframe as dd
 from dask_ml.model_selection import train_test_split
 from xgboost import dask as dxgb
+
+# ÚJ: MLflow importok a modern mentéshez
+import mlflow
+import mlflow.xgboost
+from mlflow import MlflowClient
 
 # Kiértékelési metrikák
 from sklearn.metrics import (
@@ -15,17 +19,15 @@ from sklearn.metrics import (
 
 class XGBoostTrainer:
     """
-    XGBoost modell tanítását és kiértékelését végző osztály Dask környezetben.
-
-    Támogatja a nagy adathalmazok párhuzamos feldolgozását, a tanító/teszt adatok
-    szétválasztását, valamint a modell mentését és metrikákkal történő elemzését.
+    XGBoost modell tanítását és kiértékelését végző osztály Dask környezetben,
+    kiegészítve lokális MLflow Tracking és Registry támogatással.
     """
 
     def __init__(self, csv_file_path, resource_folder, config, client):
         """
         Args:
             csv_file_path (str): A bemeneti jellemzőtábla (CSV) elérési útja.
-            resource_folder (str): A modell mentési helye.
+            resource_folder (str): A modell mentési helye (Legacy).
             config (dict): Konfigurációs beállítások (pl. modell neve).
             client (dask.distributed.Client): A Dask cluster kliense a párhuzamosításhoz.
         """
@@ -34,47 +36,33 @@ class XGBoostTrainer:
         self.config = config
         self.client = client
 
+        # ÚJ: Beállítjuk az asztali PC-n futó MLflow szerver elérhetőségét
+        # Ha a config-ban nincs megadva, alapértelmezetten a http://localhost:5000-et használja
+        mlflow_uri = self.config.get("mlflow_uri", "http://localhost:5000")
+        mlflow.set_tracking_uri(mlflow_uri)
+        mlflow.set_experiment("pulmoflow-desktop-training")
+
     def train(self, log_callback, do_split=True):
-        """
-        A tanítási folyamat végrehajtása.
-
-        Lépések:
-        1. Adatok betöltése Dask DataFrame-be.
-        2. Adattisztítás (felesleges oszlopok eltávolítása).
-        3. Szétválasztás (Split) vagy teljes tanítás kiválasztása.
-        4. XGBoost modell tanítása multi-class paraméterekkel.
-        5. Modell mentése joblib formátumban.
-        6. Opcionális kiértékelés (Accuracy, Recall, F1, RMSE, Confusion Matrix).
-
-        Args:
-            log_callback (function): Függvény a naplóüzenetek megjelenítéséhez (pl. GUI-n).
-            do_split (bool): Ha True, 80/20 arányú tesztelést végez. Ha False, 100%-on tanít.
-
-        Returns:
-            bool: True, ha a folyamat sikeresen lezárult, egyébként False.
-        """
         if not os.path.exists(self.csv_file_path):
             log_callback(f"⚠️ Nem található {self.csv_file_path} fájl.")
             return False
 
         try:
             log_callback(f"⏳ Adatok betöltése a {'Teszt' if do_split else 'Végleges'} módhoz...")
-            # origin_ddf = dd.read_csv(self.in_file_path)
             origin_ddf = dd.read_parquet(self.csv_file_path)
-            # Tisztítás
+
             for col in ['Unnamed: 0.1', 'Unnamed: 0']:
                 if col in origin_ddf.columns:
                     origin_ddf = origin_ddf.drop(columns=[col])
-            # Adatok fixálása a memóriában a partíciós hibák elkerülésére
+
             origin_ddf = origin_ddf.persist()
             y = origin_ddf['Label'].astype('int')
             X = origin_ddf.drop(['Label', 'patient_id'], axis=1)
-            # Biztonsági ellenőrzés és javítás
+
             if X.npartitions != y.npartitions:
                 log_callback(f"🔧 Partíciók javítása: {X.npartitions} vs {y.npartitions}")
                 y = y.repartition(npartitions=X.npartitions)
 
-            # --- Mód választás: Split vagy Full ---
             if do_split:
                 log_callback("✂️ Adatok felosztása: 80% Tanító, 20% Teszt.")
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
@@ -85,7 +73,7 @@ class XGBoostTrainer:
                 dtrain = dxgb.DaskDMatrix(self.client, X, y)
                 dtest = None
 
-            # Paraméterek
+            # Multi-class Paraméterek
             params = {
                 'objective': 'multi:softprob',
                 'num_class': 15,
@@ -98,7 +86,7 @@ class XGBoostTrainer:
                 'max_bin': 256,
             }
 
-            log_callback("🚀 XGBoost tanítás indítása...")
+            log_callback("🚀 XGBoost tanítás indítása Dask-on keresztül...")
             model = dxgb.train(
                 self.client,
                 params,
@@ -107,29 +95,45 @@ class XGBoostTrainer:
                 evals=[(dtrain, "train")]
             )
 
+            # Kinyerjük a tiszta booster objektumot a Dask wrapperből
             booster = model["booster"]
 
-            # Mentés előkészítése
-            full_name = self.config['model-name']
-            name_part, extension = os.path.splitext(full_name)  # pl. ('lung_dx_model', '.pkl')
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # pl. '20260420_102530'
+            # -------------------------------------------------------------------------
+            # MÓDOSÍTVA: NATÍV MLFLOW MENTÉS LOKÁLISAN AZ ASZTALI PC-N
+            # -------------------------------------------------------------------------
+            model_name = "PulmoFlow_Model"
+            log_callback(f"📦 Modell naplózása az asztali MLflow-ba '{model_name}' néven...")
 
-            if not do_split:
-                # Végleges mód esetén: név_időbélyeg_final.pkl
-                base_name = f"{name_part}_{timestamp}_final{extension}"
-            else:
-                # Opcionálisan a teszt módhoz is adhatsz időbélyeget:
-                base_name = f"{name_part}_{timestamp}_test{extension}"
+            # Adatbemeneti séma (signature) automatikus kinyerése a Dask DataFrame-ből
+            input_sample = X.head(5)
+            signature = mlflow.models.infer_signature(input_sample, np.zeros(5))
 
-            pkl_path = f"{self.resource_folder}/{base_name}"
-            
-            if os.path.exists(pkl_path):
-                os.remove(pkl_path)
+            with mlflow.start_run() as run:
+                # Elmentjük az XGBoost boostert az MLflow-ba, és regisztráljuk a lokális nyilvántartásba
+                mlflow.xgboost.log_model(
+                    xgb_model=booster,
+                    artifact_path="model",
+                    signature=signature,
+                    registered_model_name=model_name
+                )
+                log_callback(f"✅ Modell sikeresen elmentve az MLflow-ba! Run ID: {run.info.run_id}")
 
-            joblib.dump(booster, pkl_path)
-            log_callback(f"💾 Modell elmentve: {pkl_path}")
+                # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként lokálisan
+                if not do_split:
+                    client = MlflowClient()
+                    latest_versions = client.get_latest_versions(model_name, stages=["None"])
+                    if latest_versions:
+                        current_version = latest_versions[0].version
+                        client.transition_model_version_stage(
+                            name=model_name,
+                            version=current_version,
+                            stage="Production"
+                        )
+                        log_callback(f"🚀 Lokális fázis átállítva: Version {current_version} -> Production")
 
-            # --- Kiértékelés (csak ha kértünk tesztelést) ---
+            # -------------------------------------------------------------------------
+            # Kiértékelés (csak ha teszt módban futott)
+            # -------------------------------------------------------------------------
             if do_split and dtest is not None:
                 log_callback("📊 Kiértékelés a tesztadatokon...")
                 y_dask_pred = dxgb.predict(self.client, booster, dtest)
@@ -155,12 +159,11 @@ class XGBoostTrainer:
                 log_callback(f"   Confusion Matrix:\n{conf_matrix}")
                 log_callback('-' * 45)
             else:
-                log_callback("ℹ️ Végleges tanítás befejezve. Nincs tesztelési fázis.")
+                log_callback("ℹ️ Végleges tanítás sikeresen befejezve. Letöltheted a ZIP fájlt az MLflow UI-ról.")
 
             return True
 
         except Exception as e:
-            print(f"❌ Hiba a tanítás során: {str(e)}")
             log_callback(f"❌ Hiba a tanítás során: {str(e)}")
             import traceback
             log_callback(traceback.format_exc())

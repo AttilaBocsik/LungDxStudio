@@ -36,3 +36,5 @@ sphinx
 sphinx-rtd-theme
 pyinstaller
 parquet
+mlflow
+mlflow-skinny
