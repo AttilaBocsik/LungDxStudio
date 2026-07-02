@@ -40,12 +40,16 @@ def run_application():
         from src.core.data_prep.annotation_parser import AnnotationParser
 
         try:
-            from src.core.learning.training_logic import XGBoostTrainer as TrainerClass
+            from src.core.learning.training_logic import XGBoostTrainer as TrainerClass, DagsHubConnectionError
             XGBoostTrainer = TrainerClass
             print("✅ XGBoostTrainer sikeresen betöltve.")
         except ImportError as e:
             print(f"⚠️ Hiba a TrainingLogic betöltésekor: {e}")
             XGBoostTrainer = None
+
+            # Tartalék osztály, ha nem sikerülne importálni
+            class DagsHubConnectionError(Exception):
+                pass
 
         # --- 1. Worker az indexeléshez ---
 
@@ -138,10 +142,11 @@ def run_application():
 
                 self.finished.emit()
 
-        # --- 3. ÚJ: Worker a Modell Tanításhoz ---
+        # --- 3. Worker a Modell Tanításhoz ---
         class TrainingWorker(QThread):
             log_signal = pyqtSignal(str)
             finished_signal = pyqtSignal(bool)
+            dagshub_error_signal = pyqtSignal(str)  # ÚJ: Szignál a hálózati kapcsolat hibájának átadásához
 
             def __init__(self, trainer_class, do_split, *args, **kwargs):
                 super().__init__()
@@ -154,9 +159,16 @@ def run_application():
                     self.finished_signal.emit(False)
                     return
 
-                # A tanítás indítása a választott móddal
-                success = self.trainer.train(self.log_signal.emit, do_split=self.do_split)
-                self.finished_signal.emit(success)
+                try:
+                    # A tanítás indítása a választott móddal
+                    success = self.trainer.train(self.log_signal.emit, do_split=self.do_split)
+                    self.finished_signal.emit(success)
+                except DagsHubConnectionError as de:
+                    # Elkapjuk a specifikus DAGsHub hibát, és jelezzük a főablaknak
+                    self.dagshub_error_signal.emit(str(de))
+                except Exception as e:
+                    self.log_signal.emit(f"❌ Váratlan hiba a háttérszálon: {str(e)}")
+                    self.finished_signal.emit(False)
 
             def emit_log(self, message):
                 self.log_signal.emit(message)
@@ -373,6 +385,8 @@ def run_application():
                 )
                 self.train_worker.log_signal.connect(self.log_display.append)
                 self.train_worker.finished_signal.connect(self.on_training_finished)
+                self.train_worker.dagshub_error_signal.connect(
+                    self.on_dagshub_error)  # ÚJ: Bekötjük az egyedi hálózati hiba szignált
                 self.train_worker.start()
 
             def on_training_finished(self, success):
@@ -391,6 +405,37 @@ def run_application():
                 else:
                     self.log_display.append("\n⚠️ A tanítás nem volt sikeres, a fájlok megmaradtak a hibakereséshez.")
                     QMessageBox.warning(self, "Hiba", "Hiba történt a tanítás során.")
+
+            def on_dagshub_error(self, error_msg):
+                """ÚJ: Feldolgozza a DAGsHub hálózati hibáját és megjeleníti a PyQt felugró ablakot."""
+                self.log_display.append(f"\n❌ Kapcsolódási hiba: {error_msg}")
+                self.progress_bar.setValue(0)
+
+                # Felugró ablak konfigurálása
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Critical)
+                msg.setWindowTitle("DAGsHub Elérési Hiba")
+                msg.setText(
+                    "A modell feltöltése sikertelen, mert a távoli DAGsHub szerver nem elérhető 3 próbálkozás után sem.")
+                msg.setInformativeText(f"Részletek: {error_msg}\n\nKérjük válasszon a következő műveletek közül:")
+
+                # Gombok hozzáadása egyedi feliratokkal
+                close_btn = msg.addButton("Program bezárása", QMessageBox.ButtonRole.DestructiveRole)
+                retry_later_btn = msg.addButton("Későbbi próbálkozás", QMessageBox.ButtonRole.AcceptRole)
+
+                msg.exec()
+
+                if msg.clickedButton() == close_btn:
+                    self.log_display.append("🚪 Kilépés a felhasználó kérésére...")
+                    QApplication.quit()
+                else:
+                    # Későbbi próbálkozás opció: nem nyúlunk a Parquet és cache adatokhoz,
+                    # hanem újra engedélyezzük a gombokat az ismételt próbálkozáshoz
+                    self.log_display.append("ℹ️ Későbbi próbálkozás kiválasztva. A tanítási adatok megmaradtak.")
+                    self.run_btn.setEnabled(True)
+                    self.process_btn.setEnabled(False)
+                    self.export_btn.setEnabled(False)
+                    self.train_btn.setEnabled(True)  # Újra kattinthatóvá tesszük a tanítás indítását
 
             def cleanup_temp_files(self):
                 """Törli a processed_data mappát és a generált CSV fájlt."""

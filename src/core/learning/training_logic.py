@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 import numpy as np
 import dask.dataframe as dd
@@ -15,6 +16,11 @@ from sklearn.metrics import (
     root_mean_squared_error, recall_score, f1_score,
     jaccard_score, confusion_matrix, accuracy_score
 )
+
+
+class DagsHubConnectionError(Exception):
+    """Egyedi kivétel, ha a DAGsHub elérése többszöri próbálkozásra is meghiúsul."""
+    pass
 
 
 class XGBoostTrainer:
@@ -39,7 +45,8 @@ class XGBoostTrainer:
         # HITELESÍTÉS ÉS KÖRNYEZET BEÁLLÍTÁSA A DAGSHUBHOZ
         os.environ["MLFLOW_TRACKING_URI"] = "https://dagshub.com/AttilaBocsik/pulmoflow-lung-model-training.mlflow"
         os.environ["MLFLOW_TRACKING_USERNAME"] = "AttilaBocsik"
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = "fe190b170caeaf1fdb7ba509222078971ea9e7d4" # Amit a VPS-en a .env-ben is használsz
+        os.environ[
+            "MLFLOW_TRACKING_PASSWORD"] = "fe190b170caeaf1fdb7ba509222078971ea9e7d4"  # Amit a VPS-en a .env-ben is használsz
 
         # Beállítjuk a DAGsHub távoli szerver elérhetőségét
         mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
@@ -102,7 +109,7 @@ class XGBoostTrainer:
             booster = model["booster"]
 
             # -------------------------------------------------------------------------
-            # FELTÖLTÉS A FELHŐBE (DAGSHUB)
+            # FELTÖLTÉS A FELHŐBE (DAGSHUB) - ÚJRAKÍSÉRLÉSI LOGIKÁVAL
             # -------------------------------------------------------------------------
             model_name = "CT_XGBoost_Model"  # A backend által keresett név
             log_callback(f"📦 Modell naplózása és regisztrációja a DAGsHub-ra '{model_name}' néven...")
@@ -111,32 +118,56 @@ class XGBoostTrainer:
             input_sample = X.head(5)
             signature = mlflow.models.infer_signature(input_sample, np.zeros(5))
 
-            with mlflow.start_run(run_name="Asztali_CT_Modell_Tanitas") as run:
-                # Opcionálisan naplózhatjuk a főbb paramétereket is a felületre
-                mlflow.log_params(params)
-                mlflow.log_param("num_boost_round", 1000)
+            max_retries = 3
+            retry_delay = 5  # másodperc a kísérletek között
+            upload_success = False
+            last_exception = None
 
-                # Elmentjük az XGBoost boostert a DAGsHub MLflow-ba, és regisztráljuk
-                mlflow.xgboost.log_model(
-                    xgb_model=booster,
-                    artifact_path="model",
-                    signature=signature,
-                    registered_model_name=model_name
-                )
-                log_callback(f"✅ Modell sikeresen elmentve a DAGsHub-ra! Run ID: {run.info.run_id}")
+            for attempt in range(1, max_retries + 1):
+                try:
+                    log_callback(f"🔄 Feltöltési kísérlet {attempt}/{max_retries}...")
 
-                # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként
-                if not do_split:
-                    client = MlflowClient()
-                    latest_versions = client.get_latest_versions(model_name, stages=["None"])
-                    if latest_versions:
-                        current_version = latest_versions[0].version
-                        client.transition_model_version_stage(
-                            name=model_name,
-                            version=current_version,
-                            stage="Production"
+                    with mlflow.start_run(run_name="Asztali_CT_Modell_Tanitas") as run:
+                        # Opcionálisan naplózhatjuk a főbb paramétereket is a felületre
+                        mlflow.log_params(params)
+                        mlflow.log_param("num_boost_round", 1000)
+
+                        # Elmentjük az XGBoost boostert a DAGsHub MLflow-ba, és regisztráljuk
+                        mlflow.xgboost.log_model(
+                            xgb_model=booster,
+                            artifact_path="model",
+                            signature=signature,
+                            registered_model_name=model_name
                         )
-                        log_callback(f"🚀 Regisztrált fázis átállítva: Version {current_version} -> Production")
+                        log_callback(f"✅ Modell sikeresen elmentve a DAGsHub-ra! Run ID: {run.info.run_id}")
+
+                        # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként
+                        if not do_split:
+                            client = MlflowClient()
+                            latest_versions = client.get_latest_versions(model_name, stages=["None"])
+                            if latest_versions:
+                                current_version = latest_versions[0].version
+                                client.transition_model_version_stage(
+                                    name=model_name,
+                                    version=current_version,
+                                    stage="Production"
+                                )
+                                log_callback(f"🚀 Regisztrált fázis átállítva: Version {current_version} -> Production")
+
+                    upload_success = True
+                    break  # Sikeres futás esetén kilépünk a próbálkozások ciklusából
+
+                except Exception as e:
+                    last_exception = e
+                    log_callback(f"⚠️ Hiba a(z) {attempt}. kísérlet során: {str(e)}")
+                    if attempt < max_retries:
+                        log_callback(f"⏳ Várakozás {retry_delay} másodpercig a következő próbálkozás előtt...")
+                        time.sleep(retry_delay)
+
+            # Ha a 3 próbálkozás egyike sem járt sikerrel, eldobjuk az egyedi hibát
+            if not upload_success:
+                raise DagsHubConnectionError(
+                    f"A DAGsHub elérése 3 próbálkozás után sem sikerült. Ok: {str(last_exception)}")
 
             # -------------------------------------------------------------------------
             # Kiértékelés (csak ha teszt módban futott)
@@ -170,6 +201,9 @@ class XGBoostTrainer:
 
             return True
 
+        except DagsHubConnectionError as d_err:
+            # Ezt a specifikus hibát szándékosan továbbdobjuk, hogy a GUI-ban el lehessen kapni a felugró ablakhoz!
+            raise d_err
         except Exception as e:
             log_callback(f"❌ Hiba a tanítás során: {str(e)}")
             import traceback
