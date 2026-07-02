@@ -5,7 +5,7 @@ import dask.dataframe as dd
 from dask_ml.model_selection import train_test_split
 from xgboost import dask as dxgb
 
-# ÚJ: MLflow importok a modern mentéshez
+# MLflow importok a modern mentéshez
 import mlflow
 import mlflow.xgboost
 from mlflow import MlflowClient
@@ -20,7 +20,7 @@ from sklearn.metrics import (
 class XGBoostTrainer:
     """
     XGBoost modell tanítását és kiértékelését végző osztály Dask környezetben,
-    kiegészítve lokális MLflow Tracking és Registry támogatással.
+    kiegészítve DAGsHub MLflow Tracking és Registry támogatással.
     """
 
     def __init__(self, csv_file_path, resource_folder, config, client):
@@ -36,10 +36,13 @@ class XGBoostTrainer:
         self.config = config
         self.client = client
 
-        # ÚJ: Beállítjuk az asztali PC-n futó MLflow szerver elérhetőségét
-        # Ha a config-ban nincs megadva, alapértelmezetten a http://localhost:5000-et használja
-        mlflow_uri = self.config.get("mlflow_uri", "http://localhost:5000")
-        mlflow.set_tracking_uri(mlflow_uri)
+        # HITELESÍTÉS ÉS KÖRNYEZET BEÁLLÍTÁSA A DAGSHUBHOZ
+        os.environ["MLFLOW_TRACKING_URI"] = "https://dagshub.com/AttilaBocsik/pulmoflow-ai.mlflow"
+        os.environ["MLFLOW_TRACKING_USERNAME"] = "AttilaBocsik"
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = "fe190b170caeaf1fdb7ba509222078971ea9e7d4" # Amit a VPS-en a .env-ben is használsz
+
+        # Beállítjuk a DAGsHub távoli szerver elérhetőségét
+        mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
         mlflow.set_experiment("pulmoflow-desktop-training")
 
     def train(self, log_callback, do_split=True):
@@ -99,26 +102,30 @@ class XGBoostTrainer:
             booster = model["booster"]
 
             # -------------------------------------------------------------------------
-            # MÓDOSÍTVA: NATÍV MLFLOW MENTÉS LOKÁLISAN AZ ASZTALI PC-N
+            # FELTÖLTÉS A FELHŐBE (DAGSHUB)
             # -------------------------------------------------------------------------
-            model_name = "PulmoFlow_Model"
-            log_callback(f"📦 Modell naplózása az asztali MLflow-ba '{model_name}' néven...")
+            model_name = "CT_XGBoost_Model"  # A backend által keresett név
+            log_callback(f"📦 Modell naplózása és regisztrációja a DAGsHub-ra '{model_name}' néven...")
 
             # Adatbemeneti séma (signature) automatikus kinyerése a Dask DataFrame-ből
             input_sample = X.head(5)
             signature = mlflow.models.infer_signature(input_sample, np.zeros(5))
 
-            with mlflow.start_run() as run:
-                # Elmentjük az XGBoost boostert az MLflow-ba, és regisztráljuk a lokális nyilvántartásba
+            with mlflow.start_run(run_name="Asztali_CT_Modell_Tanitas") as run:
+                # Opcionálisan naplózhatjuk a főbb paramétereket is a felületre
+                mlflow.log_params(params)
+                mlflow.log_param("num_boost_round", 1000)
+
+                # Elmentjük az XGBoost boostert a DAGsHub MLflow-ba, és regisztráljuk
                 mlflow.xgboost.log_model(
                     xgb_model=booster,
                     artifact_path="model",
                     signature=signature,
                     registered_model_name=model_name
                 )
-                log_callback(f"✅ Modell sikeresen elmentve az MLflow-ba! Run ID: {run.info.run_id}")
+                log_callback(f"✅ Modell sikeresen elmentve a DAGsHub-ra! Run ID: {run.info.run_id}")
 
-                # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként lokálisan
+                # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként
                 if not do_split:
                     client = MlflowClient()
                     latest_versions = client.get_latest_versions(model_name, stages=["None"])
@@ -129,7 +136,7 @@ class XGBoostTrainer:
                             version=current_version,
                             stage="Production"
                         )
-                        log_callback(f"🚀 Lokális fázis átállítva: Version {current_version} -> Production")
+                        log_callback(f"🚀 Regisztrált fázis átállítva: Version {current_version} -> Production")
 
             # -------------------------------------------------------------------------
             # Kiértékelés (csak ha teszt módban futott)
@@ -159,7 +166,7 @@ class XGBoostTrainer:
                 log_callback(f"   Confusion Matrix:\n{conf_matrix}")
                 log_callback('-' * 45)
             else:
-                log_callback("ℹ️ Végleges tanítás sikeresen befejezve. Letöltheted a ZIP fájlt az MLflow UI-ról.")
+                log_callback("ℹ️ Végleges tanítás sikeresen befejezve. A modell elérhető a DAGsHub felületén.")
 
             return True
 

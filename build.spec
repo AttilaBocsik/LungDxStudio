@@ -1,4 +1,3 @@
-# build.spec
 # -*- mode: python ; coding: utf-8 -*-
 
 from PyInstaller.utils.hooks import collect_all
@@ -27,10 +26,18 @@ hiddenimports = [
     'src.core.processing.tumor_processor',
     'src.core.learning.feature_extractor',
     'src.core.data_prep.annotation_parser',
-    'src.core.learning.training_logic'
+    'src.core.learning.training_logic',
+    'mlflow',
+    'mlflow.xgboost',
+    'dask_ml',
+    'dask_ml.model_selection'
 ]
 
-packages_to_collect = ['qfluentwidgets', 'xgboost', 'dask', 'dask_expr', 'pyarrow', 'pandas', 'SimpleITK', 'skimage']
+# JAVÍTVA: Hozzáadva az mlflow és dask_ml a gyűjtéshez
+packages_to_collect = [
+    'qfluentwidgets', 'xgboost', 'dask', 'dask_expr',
+    'pyarrow', 'pandas', 'SimpleITK', 'skimage', 'mlflow', 'dask_ml'
+]
 
 for package in packages_to_collect:
     tmp_ret = collect_all(package)
