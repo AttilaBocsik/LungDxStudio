@@ -37,13 +37,13 @@ class XGBoostTrainer:
         self.client = client
 
         # HITELESÍTÉS ÉS KÖRNYEZET BEÁLLÍTÁSA A DAGSHUBHOZ
-        os.environ["MLFLOW_TRACKING_URI"] = "https://dagshub.com/AttilaBocsik/pulmoflow-ai.mlflow"
+        os.environ["MLFLOW_TRACKING_URI"] = "https://dagshub.com/AttilaBocsik/pulmoflow-lung-model-training.mlflow"
         os.environ["MLFLOW_TRACKING_USERNAME"] = "AttilaBocsik"
         os.environ["MLFLOW_TRACKING_PASSWORD"] = "fe190b170caeaf1fdb7ba509222078971ea9e7d4" # Amit a VPS-en a .env-ben is használsz
 
         # Beállítjuk a DAGsHub távoli szerver elérhetőségét
         mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-        mlflow.set_experiment("pulmoflow-desktop-training")
+        mlflow.set_experiment("pulmoflow-lung-model-training")
 
     def train(self, log_callback, do_split=True):
         if not os.path.exists(self.csv_file_path):
