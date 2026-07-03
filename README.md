@@ -70,20 +70,20 @@ pip install -r requirements.txt
 ```
 
 #### Running
-1. Nyiss egy PowerShell-t vagy parancssort a projekt mappájában.
-2. Hozz létre egy virtuális környezetet (ajánlott):PowerShell
+1. Open a PowerShell or command prompt in your project folder.
+2. Create a virtual environment (recommended): PowerShell
 ```bash
 python -m venv venv
 .\venv\Scripts\activate
 ```
 
-3. Telepítsd a függőségeket a requirements.txt alapján:  
+3. Install the dependencies based on requirements.txt:
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-4Futtasd a PyInstaller-t a konfigurációs fájllal:
+4 Run PyInstaller with the configuration file:
 ```bash
 pyinstaller build.spec
 ```
@@ -91,12 +91,3 @@ pyinstaller build.spec
 #### CT Imaging Technical Information
 - SliceThickness: Represents vertical resolution.
 - PixelSpacing: Defines the physical area covered by a single pixel (e.g., 0.7mm x 0.7mm).
-
-### Applikáció futtatás
-1. MLflow indítása az asztali PC-den: Nyiss egy terminált az asztali gépeden, és indítsd el a helyi MLflow szervert (pontosan úgy, ahogy múltkor csináltuk):
-```bash
-mlflow server --host 127.0.0.1 --port 5000
-```
-2. Tanítás futtatása: Futtasd le a fenti, új training_logic.py kódot tartalmazó tanításodat az asztali PC-den.
-3. ZIP letöltése: Nyisd meg a böngésződben a http://localhost:5000 címet. Kattints a friss futásra -> görgess le az Artifacts szekcióhoz -> kattints a model mappára -> nyomj rá a Download ikonra. Kapsz egy model.zip fájlt.
-4. Feltöltés a VPS-re: Nyisd meg a VPS-en futó Angular webes felületet, és ezen a ZIP-en keresztül küldd el a fájlt a VPS-en futó új FastAPI /model/upload végpontjára.

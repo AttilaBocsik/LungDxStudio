@@ -130,9 +130,6 @@ def run_application():
                         parquet_path = "training_data_pixelwise.parquet"
                         extractor.save_to_parquet(df, parquet_path)
                         msg = f"✅ Parquet mentve: {parquet_path} ({len(df)} sor)"
-                        # csv_path = "training_data_pixelwise.csv"
-                        # extractor.save_to_csv(df, csv_path)
-                        # msg = f"✅ CSV mentve: {csv_path} ({len(df)} sor)"
                         self.log_signal.emit(msg)
                         self.write_to_log_file(msg)
                     else:
@@ -146,7 +143,7 @@ def run_application():
         class TrainingWorker(QThread):
             log_signal = pyqtSignal(str)
             finished_signal = pyqtSignal(bool)
-            dagshub_error_signal = pyqtSignal(str)  # ÚJ: Szignál a hálózati kapcsolat hibájának átadásához
+            dagshub_error_signal = pyqtSignal(str)  # Szignál a hálózati kapcsolat hibájának átadásához
 
             def __init__(self, trainer_class, do_split, *args, **kwargs):
                 super().__init__()
@@ -184,6 +181,7 @@ def run_application():
                 # Adatok tárolása
                 self.dicom_dir = None
                 self.xml_dir = None
+                self.license_file_path = None  # ÚJ: Licenc fájl tárolója
                 self.mgr = None
                 self.patient_store = None
                 self.log_file = "app.log"
@@ -198,19 +196,18 @@ def run_application():
                 dask.config.set({
                     "distributed.comm.timeouts.connect": "60s",
                     "distributed.comm.timeouts.tcp": "60s",
-                    "distributed.worker.memory.target": 0.6,  # 60%-nál kezdjen el üríteni
-                    "distributed.worker.memory.spill": 0.7,  # 70%-nál írjon lemezre
-                    "distributed.worker.memory.pause": 0.8,  # 80%-nál állítsa meg a feldolgozást
-                    "distributed.worker.memory.terminate": 0.95  # 95%-nál lője le, mielőtt az OS tenné
+                    "distributed.worker.memory.target": 0.6,
+                    "distributed.worker.memory.spill": 0.7,
+                    "distributed.worker.memory.pause": 0.8,
+                    "distributed.worker.memory.terminate": 0.95
                 })
 
                 try:
-                    # Csak 1-2 workert engedélyezünk, így marad erőforrás a TumorProcessor-nak is
                     self.dask_client = Client(
                         n_workers=1,
                         threads_per_worker=2,
                         processes=True,
-                        memory_limit='8GB'  # Állítsd be a saját RAM-od függvényében
+                        memory_limit='8GB'
                     )
                 except Exception as e:
                     self.write_to_log_file(f"Dask Error: {e}")
@@ -228,9 +225,10 @@ def run_application():
                 self.top_card = CardWidget(self)
                 h_ly = QHBoxLayout(self.top_card)
 
-                # Forrás mappák
+                # Forrás mappák és a licenc gomb
                 self.dicom_btn = PushButton(FluentIcon.FOLDER, "DICOM")
                 self.xml_btn = PushButton(FluentIcon.FOLDER, "XML")
+                self.license_btn = PushButton(FluentIcon.VPN, "Licenc (.json)")  # ÚJ: Licenc kiválasztó gomb
 
                 # Folyamat gombok (sorrendben)
                 self.run_btn = PrimaryPushButton(FluentIcon.PLAY, "1. Indexelés")
@@ -242,7 +240,7 @@ def run_application():
                 self.test_mode_switch = SwitchButton()
                 self.test_mode_switch.setOnText("Teszt (80/20)")
                 self.test_mode_switch.setOffText("Végleges (100%)")
-                self.test_mode_switch.setChecked(True)  # Alapból teszt mód
+                self.test_mode_switch.setChecked(True)
 
                 self.train_mode_layout.addWidget(BodyLabel("Tanítási mód:"))
                 self.train_mode_layout.addWidget(self.test_mode_switch)
@@ -253,9 +251,10 @@ def run_application():
                 for btn in [self.run_btn, self.process_btn, self.export_btn, self.train_btn]:
                     btn.setEnabled(False)
 
-                # UI elemek elrendezése
+                # UI elemek elrendezése (Új gomb beillesztve)
                 h_ly.addWidget(self.dicom_btn)
                 h_ly.addWidget(self.xml_btn)
+                h_ly.addWidget(self.license_btn)
                 h_ly.addStretch(1)
                 h_ly.addWidget(self.run_btn)
                 h_ly.addWidget(self.process_btn)
@@ -281,6 +280,7 @@ def run_application():
                 # Signal bekötések
                 self.dicom_btn.clicked.connect(self.select_dicom)
                 self.xml_btn.clicked.connect(self.select_xml)
+                self.license_btn.clicked.connect(self.select_license)  # ÚJ: Signal bekötés
                 self.run_btn.clicked.connect(self.start_index)
                 self.process_btn.clicked.connect(self.start_processing)
                 self.export_btn.clicked.connect(self.start_export)
@@ -302,6 +302,13 @@ def run_application():
                     self.log_display.append(f"📝 XML: {p}")
                     self.check_ready()
 
+            def select_license(self):
+                """ÚJ: Fájlválasztó ablak a licenc JSON fájl betallózásához."""
+                p, _ = QFileDialog.getOpenFileName(self, "Licenc / Hitelesítési fájl megnyitása", "", "JSON fájlok (*.json)")
+                if p:
+                    self.license_file_path = p
+                    self.log_display.append(f"🔑 Licenc betöltve: {p}")
+
             def check_ready(self):
                 if self.dicom_dir and self.xml_dir:
                     self.mgr = DataManager(self.dicom_dir, self.xml_dir)
@@ -317,12 +324,10 @@ def run_application():
                 self.worker.log_signal.connect(self.log_display.append)
                 self.worker.progress_signal.connect(self.progress_bar.setValue)
                 self.worker.data_ready_signal.connect(lambda data: setattr(self, 'patient_store', data))
-                # self.worker.finished.connect(lambda: self.process_btn.setEnabled(True))
                 self.worker.finished.connect(self.on_index_finished)
                 self.worker.start()
 
             def on_index_finished(self):
-                """Eseménykezelő, ami akkor fut le, ha az indexelés véget ért."""
                 self.run_btn.setEnabled(False)
                 self.process_btn.setEnabled(True)
                 self.log_display.append("➡️ Kész! Mehet a feldolgozás.")
@@ -333,12 +338,10 @@ def run_application():
                 self.processor = TumorProcessor(self.patient_store)
                 self.processor.log_signal.connect(self.log_display.append)
                 self.processor.progress_signal.connect(self.progress_bar.setValue)
-                # self.processor.finished.connect(lambda: self.export_btn.setEnabled(True))
                 self.processor.finished.connect(self.on_processing_finished)
                 self.processor.start()
 
             def on_processing_finished(self):
-                """Eseménykezelő, ami akkor fut le, ha az feldolgozás véget ért."""
                 self.run_btn.setEnabled(False)
                 self.process_btn.setEnabled(False)
                 self.export_btn.setEnabled(True)
@@ -358,7 +361,7 @@ def run_application():
                 self.run_btn.setEnabled(False)
                 self.process_btn.setEnabled(False)
                 self.export_btn.setEnabled(False)
-                self.train_btn.setEnabled(True)  # Itt aktiválódik a 4. lépés
+                self.train_btn.setEnabled(True)
                 self.log_display.append("➡️ Kész! Mehet a Modell Tanítás.")
 
             def start_training_process(self):
@@ -366,7 +369,20 @@ def run_application():
                     QMessageBox.critical(self, "Hiba", "Nincs meg a TrainingLogic modul!")
                     return
 
-                # Leolvassuk a kapcsolót
+                # ÚJ: Ellenőrizzük, hogy be van-e tallózva a licenc fájl
+                if not self.license_file_path:
+                    # Megnézzük, hogy létezik-e az alapértelmezett fallback útvonal
+                    from pathlib import Path
+                    default_path = Path.home() / ".pulmoflow" / "credentials.json"
+                    if not default_path.exists():
+                        QMessageBox.warning(
+                            self, "Hiányzó licenc",
+                            "A tanítás indítása előtt kérjük tallózza be a licenc (.json) fájlt!"
+                        )
+                        return
+                    else:
+                        self.license_file_path = str(default_path)
+
                 do_split = self.test_mode_switch.isChecked()
 
                 self.train_btn.setEnabled(False)
@@ -375,27 +391,27 @@ def run_application():
                     f"🧠 TANÍTÁS INDÍTÁSA | Mód: {'TESZTELÉS (80/20)' if do_split else 'VÉGLEGES (100%)'}")
                 self.log_display.append("=" * 40)
 
+                # MÓDOSÍTVA: Átadjuk a credentials_path paramétert a workernek
                 self.train_worker = TrainingWorker(
                     XGBoostTrainer,
                     do_split=do_split,
                     csv_file_path="training_data_pixelwise.parquet",
                     resource_folder=self.resource_folder,
                     config=self.config,
-                    client=self.dask_client
+                    client=self.dask_client,
+                    credentials_path=self.license_file_path
                 )
                 self.train_worker.log_signal.connect(self.log_display.append)
                 self.train_worker.finished_signal.connect(self.on_training_finished)
-                self.train_worker.dagshub_error_signal.connect(
-                    self.on_dagshub_error)  # ÚJ: Bekötjük az egyedi hálózati hiba szignált
+                self.train_worker.dagshub_error_signal.connect(self.on_dagshub_error)
                 self.train_worker.start()
 
             def on_training_finished(self, success):
-                # 1. Alaphelyzetbe állítás (Reset gombok)
-                self.run_btn.setEnabled(True)  # Újra elindítható a folyamat az elejéről
+                self.run_btn.setEnabled(True)
                 self.process_btn.setEnabled(False)
                 self.export_btn.setEnabled(False)
                 self.train_btn.setEnabled(False)
-                self.progress_bar.setValue(0)  # Progress bar visszaállítása
+                self.progress_bar.setValue(0)
 
                 if success:
                     self.log_display.append("\n🧹 Átmeneti fájlok takarítása...")
@@ -407,11 +423,9 @@ def run_application():
                     QMessageBox.warning(self, "Hiba", "Hiba történt a tanítás során.")
 
             def on_dagshub_error(self, error_msg):
-                """ÚJ: Feldolgozza a DAGsHub hálózati hibáját és megjeleníti a PyQt felugró ablakot."""
                 self.log_display.append(f"\n❌ Kapcsolódási hiba: {error_msg}")
                 self.progress_bar.setValue(0)
 
-                # Felugró ablak konfigurálása
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Icon.Critical)
                 msg.setWindowTitle("DAGsHub Elérési Hiba")
@@ -419,7 +433,6 @@ def run_application():
                     "A modell feltöltése sikertelen, mert a távoli DAGsHub szerver nem elérhető 3 próbálkozás után sem.")
                 msg.setInformativeText(f"Részletek: {error_msg}\n\nKérjük válasszon a következő műveletek közül:")
 
-                # Gombok hozzáadása egyedi feliratokkal
                 close_btn = msg.addButton("Program bezárása", QMessageBox.ButtonRole.DestructiveRole)
                 retry_later_btn = msg.addButton("Későbbi próbálkozás", QMessageBox.ButtonRole.AcceptRole)
 
@@ -429,17 +442,13 @@ def run_application():
                     self.log_display.append("🚪 Kilépés a felhasználó kérésére...")
                     QApplication.quit()
                 else:
-                    # Későbbi próbálkozás opció: nem nyúlunk a Parquet és cache adatokhoz,
-                    # hanem újra engedélyezzük a gombokat az ismételt próbálkozáshoz
                     self.log_display.append("ℹ️ Későbbi próbálkozás kiválasztva. A tanítási adatok megmaradtak.")
                     self.run_btn.setEnabled(True)
                     self.process_btn.setEnabled(False)
                     self.export_btn.setEnabled(False)
-                    self.train_btn.setEnabled(True)  # Újra kattinthatóvá tesszük a tanítás indítását
+                    self.train_btn.setEnabled(True)
 
             def cleanup_temp_files(self):
-                """Törli a processed_data mappát és a generált CSV fájlt."""
-                # 1. CSV törlése
                 csv_file = "training_data_pixelwise.parquet"
                 try:
                     if os.path.exists(csv_file):
@@ -448,13 +457,10 @@ def run_application():
                 except Exception as e:
                     self.log_display.append(f"❌ Nem sikerült a Parquet fájl törlése: {e}")
 
-                # 2. processed_data mappa tartalmának törlése
                 processed_dir = "processed_data"
                 try:
                     if os.path.exists(processed_dir):
-                        # shutil.rmtree törli a mappát és minden tartalmát
                         shutil.rmtree(processed_dir)
-                        # Opcionális: Hozzuk létre üresen, ha a program struktúrája elvárja
                         os.makedirs(processed_dir)
                         self.log_display.append(f"✅ Törölve: {processed_dir} tartalma")
                 except Exception as e:

@@ -1,6 +1,8 @@
 import os
 import time
+import json
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 import dask.dataframe as dd
 from dask_ml.model_selection import train_test_split
@@ -29,24 +31,44 @@ class XGBoostTrainer:
     kiegészítve DAGsHub MLflow Tracking és Registry támogatással.
     """
 
-    def __init__(self, csv_file_path, resource_folder, config, client):
+    def __init__(self, csv_file_path, resource_folder, config, client, credentials_path=None):
         """
         Args:
             csv_file_path (str): A bemeneti jellemzőtábla (CSV) elérési útja.
             resource_folder (str): A modell mentési helye (Legacy).
             config (dict): Konfigurációs beállítások (pl. modell neve).
             client (dask.distributed.Client): A Dask cluster kliense a párhuzamosításhoz.
+            credentials_path (str, optional): A licenc/hitelesítési JSON fájl elérési útja.
         """
         self.csv_file_path = csv_file_path
         self.resource_folder = resource_folder
         self.config = config
         self.client = client
 
-        # HITELESÍTÉS ÉS KÖRNYEZET BEÁLLÍTÁSA A DAGSHUBHOZ
-        os.environ["MLFLOW_TRACKING_URI"] = "https://dagshub.com/AttilaBocsik/pulmoflow-lung-model-training.mlflow"
-        os.environ["MLFLOW_TRACKING_USERNAME"] = "AttilaBocsik"
-        os.environ[
-            "MLFLOW_TRACKING_PASSWORD"] = "fe190b170caeaf1fdb7ba509222078971ea9e7d4"  # Amit a VPS-en a .env-ben is használsz
+        # HITELESÍTÉS ÉS KÖRNYEZET BEÁLLÍTÁSA A DAGSHUBHOZ KÜLSŐ FÁJLBÓL
+        creds = None
+
+        # 1. Megpróbáljuk betölteni a GUI-ból átadott tallózott fájlt
+        if credentials_path and os.path.exists(credentials_path):
+            with open(credentials_path, "r", encoding="utf-8") as f:
+                creds = json.load(f)
+        else:
+            # 2. Ha nincs megadva, megnézzük a központi felhasználói mappában (fallback)
+            default_path = Path.home() / ".pulmoflow" / "credentials.json"
+            if default_path.exists():
+                with open(default_path, "r", encoding="utf-8") as f:
+                    creds = json.load(f)
+
+        if not creds:
+            raise FileNotFoundError(
+                "❌ Nem található érvényes licenc vagy hitelesítési fájl! "
+                "Kérjük tallózza be a GUI-n vagy helyezze el a felhasználói könyvtár .pulmoflow mappájába."
+            )
+
+        # Környezeti változók dinamikus beállítása a fájlból
+        os.environ["MLFLOW_TRACKING_URI"] = creds.get("MLFLOW_TRACKING_URI", "")
+        os.environ["MLFLOW_TRACKING_USERNAME"] = creds.get("MLFLOW_TRACKING_USERNAME", "")
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = creds.get("MLFLOW_TRACKING_PASSWORD", "")
 
         # Beállítjuk a DAGsHub távoli szerver elérhetőségét
         mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])

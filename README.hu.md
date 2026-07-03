@@ -61,6 +61,41 @@ Eredeti lista indexe	Változónév nálad	.npz fájl kulcsa (Key)	Tartalom
 ```bash
 pip install PyQt6 PyQt6-Fluent-Widgets
 ```
+```bash
+pip install -r requirements.txt
+```
+
+#### Running
+1. Nyiss egy PowerShell-t vagy parancssort a projekt mappájában.
+2. Hozz létre egy virtuális környezetet (ajánlott):PowerShell
+```bash
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+3. Telepítsd a függőségeket a requirements.txt alapján:  
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+4 Futtasd a PyInstaller-t a konfigurációs fájllal:
+```bash
+pyinstaller build.spec
+```
+
+#### Szoftver dokumentációja
+- Telepítés: 
+```bash 
+pip install sphinx sphinx-rtd-theme
+```
+- Sphinx inicializálása
+- A projekt gyökérmappájában (ahol a main.py is van) hozz létre egy docs mappát
+```bash
+mkdir docs
+cd docs
+sphinx-quickstart
+```
 
 ### CT információk
 - SliceThickness: Megmutatja a vertikális felbontást.
