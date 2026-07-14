@@ -163,18 +163,24 @@ class XGBoostTrainer:
                         )
                         log_callback(f"✅ Modell sikeresen elmentve a DAGsHub-ra! Run ID: {run.info.run_id}")
 
-                        # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg Production fázisként
+                        # Ha végleges (100%-os) módban tanítottunk, automatikusan jelöljük meg champion alias-szal
                         if not do_split:
                             client = MlflowClient()
-                            latest_versions = client.get_latest_versions(model_name, stages=["None"])
-                            if latest_versions:
-                                current_version = latest_versions[0].version
-                                client.transition_model_version_stage(
+                            # get_latest_versions helyett modern search_model_versions lekérdezés
+                            versions = client.search_model_versions(filter_string=f"name='{model_name}'")
+                            if versions:
+                                # Kiválasztjuk a legújabb regisztrált verziót
+                                latest_version_obj = max(versions, key=lambda v: int(v.version))
+                                current_version = latest_version_obj.version
+
+                                # transition_model_version_stage helyett alias hozzárendelése ('champion')
+                                client.set_registered_model_alias(
                                     name=model_name,
-                                    version=current_version,
-                                    stage="Production"
+                                    alias="champion",
+                                    version=current_version
                                 )
-                                log_callback(f"🚀 Regisztrált fázis átállítva: Version {current_version} -> Production")
+                                log_callback(
+                                    f"🚀 Regisztrált alias beállítva: Version {current_version} -> 'champion' alias")
 
                     upload_success = True
                     break  # Sikeres futás esetén kilépünk a próbálkozások ciklusából
