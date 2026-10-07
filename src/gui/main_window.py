@@ -207,7 +207,7 @@ def run_application():
                         n_workers=1,
                         threads_per_worker=2,
                         processes=True,
-                        memory_limit='8GB'
+                        memory_limit='4GB'
                     )
                 except Exception as e:
                     self.write_to_log_file(f"Dask Error: {e}")
