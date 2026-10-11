@@ -79,7 +79,7 @@ python -m venv venv
 
 3. Install the dependencies based on requirements.txt:
 ```bash
-pip install --upgrade pip
+python.exe -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 

@@ -1,0 +1,17 @@
+{
+  "window_title": "LungDx Studio Pro",
+  "nav_data_prep": "Data Management & Training",
+  "btn_dicom": "DICOM",
+  "btn_xml": "XML",
+  "btn_license": "License (.json)",
+  "btn_indexing": "1. Indexing",
+  "btn_processing": "2. Processing",
+  "btn_parquet": "3. Create Parquet File",
+  "btn_training": "4. Model Training",
+  "train_mode_label": "Training Mode:",
+  "switch_test": "Test (80/20)",
+  "switch_final": "Final (100%)",
+  "log_title": "System Log",
+  "msg_success_title": "Success",
+  "msg_success_text": "Model training successful! Intermediate data cleaned up."
+}

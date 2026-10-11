@@ -75,7 +75,7 @@ python -m venv venv
 
 3. Telepítsd a függőségeket a requirements.txt alapján:  
 ```bash
-pip install --upgrade pip
+python.exe -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
