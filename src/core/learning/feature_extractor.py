@@ -1,6 +1,7 @@
 # src/core/learning/feature_extractor.py
 import os
 import glob
+import gc
 import cv2
 import numpy as np
 import pandas as pd
@@ -141,23 +142,23 @@ class FeatureExtractor:
 
         df = pd.DataFrame()
 
-        # 1. Oszlop: Eredeti pixel értékek
-        df["Image"] = img2.reshape(-1)
+        # 1. Oszlop: Eredeti pixel értékek (Float32 a memóriatakarékosságért)
+        df["Image"] = img2.reshape(-1).astype(np.float32)
 
         # 2. Gabor szűrők
         num = 1
         for gabor in self.gabor_kernels:
             gabor_label = 'Gabor' + str(num)
             fimg = cv2.filter2D(img2.astype('float32'), cv2.CV_32F, gabor)
-            df[gabor_label] = fimg.reshape(-1)
+            df[gabor_label] = fimg.reshape(-1).astype(np.float32)
             num += 1
 
         # 3. Egyéb szűrők
-        df['Sobel'] = sobel(img2).reshape(-1)
-        df['Gaussian_s3'] = nd.gaussian_filter(img2, sigma=3).reshape(-1)
-        df['Gaussian_s7'] = nd.gaussian_filter(img2, sigma=7).reshape(-1)
-        df['Median_s3'] = nd.median_filter(img2, size=3).reshape(-1)
-        df['Variance_s3'] = nd.generic_filter(img2, np.var, size=3).reshape(-1)
+        df['Sobel'] = sobel(img2).reshape(-1).astype(np.float32)
+        df['Gaussian_s3'] = nd.gaussian_filter(img2, sigma=3).reshape(-1).astype(np.float32)
+        df['Gaussian_s7'] = nd.gaussian_filter(img2, sigma=7).reshape(-1).astype(np.float32)
+        df['Median_s3'] = nd.median_filter(img2, size=3).reshape(-1).astype(np.float32)
+        df['Variance_s3'] = nd.generic_filter(img2, np.var, size=3).reshape(-1).astype(np.float32)
 
         # --- Címkézés ---
         label_value = 0
@@ -185,17 +186,19 @@ class FeatureExtractor:
                 label_value = 14
 
         df["Label"] = label_value
-        # JAVÍTÁS: Biztosítjuk, hogy a patient_id minden sorba bekerüljön
         df["patient_id"] = str(patient_id)
 
         return df
 
-    def extract_features(self):
+    def extract_features(self, batch_size: int = 10):
         """
-        A teljes jellemzőkinyerési folyamat vezérlése.
+        A teljes jellemzőkinyerési folyamat vezérlése kötegelt (batch) feldolgozással.
 
-        Végigmegy az összes .npz fájlon, végrehajtja a szűrést, a tisztítást és a
-        mintavételezést, majd összevont statisztikát készít a páciensekről.
+        Végigmegy az összes .npz fájlon kötegekben, végrehajtja a szűrést, a tisztítást
+        és a mintavételezést, majd összevont statisztikát készít a páciensekről.
+
+        Args:
+            batch_size (int): Egyszerre feldolgozott fájlok száma a memóriatúllépés elkerülésére.
 
         Returns:
             pd.DataFrame: Az összesített, kevert (shuffled) tanító adathalmaz.
@@ -206,53 +209,68 @@ class FeatureExtractor:
             print("❌ Nincsenek .npz fájlok a processed_data mappában.")
             return None
 
-        print(f"🔄 Jellemzők kinyerése {len(npz_files)} fájlból...")
+        print(f"🔄 Jellemzők kinyerése {len(npz_files)} fájlból (kötegelt feldolgozás, batch_size={batch_size})...")
 
-        dfs_to_merge = []
+        batch_dfs = []
+        total_files = len(npz_files)
 
-        for file_path in tqdm(npz_files, desc="Feldolgozás"):
-            try:
-                with np.load(file_path) as data:
-                    img_original = data['original']
-                    img_parenchyma = data['parenchyma']
-                    img_tumor = data['masked_tumor']
-                    img_roi_context = data['inverted_roi']
-                    label = str(data['label'])
+        for i in range(0, total_files, batch_size):
+            current_batch_files = npz_files[i:i + batch_size]
+            dfs_to_merge = []
 
-                    # Páciens ID tisztítása
-                    raw_id = data['patient_id']
-                    p_id = str(raw_id).replace("['", "").replace("']", "")
+            for file_path in tqdm(current_batch_files, desc=f"Batch {i // batch_size + 1}/{(total_files + batch_size - 1) // batch_size}"):
+                try:
+                    with np.load(file_path) as data:
+                        img_original = data['original']
+                        img_parenchyma = data['parenchyma']
+                        img_tumor = data['masked_tumor']
+                        img_roi_context = data['inverted_roi']
+                        label = str(data['label'])
 
-                # --- Mintavételezés (Szeletenként és képtípusonként 2000 minta) ---
+                        # Páciens ID tisztítása
+                        raw_id = data['patient_id']
+                        p_id = str(raw_id).replace("['", "").replace("']", "")
 
-                # A) Beteg tüdő
-                df_orig = self.multi_filter(p_id, img_original, label, lung_state="diseased_lungs")
-                df_orig = self.remove_null_rows(df_orig)
-                df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7], n_limit=2000)
+                    # --- Mintavételezés (Szeletenként és képtípusonként 2000 minta) ---
 
-                # B) Egészséges tüdő
-                df_par = self.multi_filter(p_id, img_parenchyma, label, lung_state="healthy_lungs")
-                df_par = self.remove_null_rows(df_par)
-                df_par = self.select_random_rows(df_par, [0, 1], n_limit=2000)
+                    # A) Beteg tüdő
+                    df_orig = self.multi_filter(p_id, img_original, label, lung_state="diseased_lungs")
+                    df_orig = self.remove_null_rows(df_orig)
+                    df_orig = self.select_random_rows(df_orig, [0, 4, 5, 6, 7], n_limit=2000)
 
-                # C) Daganat
-                df_tum = self.multi_filter(p_id, img_tumor, label, lung_state="diseased_soft_tissue")
-                df_tum = self.remove_null_rows(df_tum)
-                df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14], n_limit=2000)
+                    # B) Egészséges tüdő
+                    df_par = self.multi_filter(p_id, img_parenchyma, label, lung_state="healthy_lungs")
+                    df_par = self.remove_null_rows(df_par)
+                    df_par = self.select_random_rows(df_par, [0, 1], n_limit=2000)
 
-                # D) ROI Context
-                df_roi = self.multi_filter(p_id, img_roi_context, label, lung_state="healthy_soft_tissue")
-                df_roi = self.remove_null_rows(df_roi)
-                df_roi = self.select_random_rows(df_roi, [0, 1], n_limit=2000)
+                    # C) Daganat
+                    df_tum = self.multi_filter(p_id, img_tumor, label, lung_state="diseased_soft_tissue")
+                    df_tum = self.remove_null_rows(df_tum)
+                    df_tum = self.select_random_rows(df_tum, [0, 8, 10, 12, 14], n_limit=2000)
 
-                dfs_to_merge.extend([df_orig, df_par, df_tum, df_roi])
+                    # D) ROI Context
+                    df_roi = self.multi_filter(p_id, img_roi_context, label, lung_state="healthy_soft_tissue")
+                    df_roi = self.remove_null_rows(df_roi)
+                    df_roi = self.select_random_rows(df_roi, [0, 1], n_limit=2000)
 
-            except Exception as e:
-                print(f"⚠️ Hiba a fájlnál ({os.path.basename(file_path)}): {e}")
+                    dfs_to_merge.extend([df_orig, df_par, df_tum, df_roi])
 
-        if dfs_to_merge:
-            print("\n📊 Adatok egyesítése és végső simítások...")
-            df_all = pd.concat(dfs_to_merge, ignore_index=True)
+                except Exception as e:
+                    print(f"⚠️ Hiba a fájlnál ({os.path.basename(file_path)}): {e}")
+
+            if dfs_to_merge:
+                batch_df = pd.concat(dfs_to_merge, ignore_index=True)
+                batch_dfs.append(batch_df)
+
+            # Memória explicit felszabadítása a batch végén
+            del dfs_to_merge
+            gc.collect()
+
+        if batch_dfs:
+            print("\n📊 Batch adatok egyesítése és végső simítások...")
+            df_all = pd.concat(batch_dfs, ignore_index=True)
+            del batch_dfs
+            gc.collect()
 
             # Tisztítás
             df_all.loc[df_all['Image'] == 0.0, 'Label'] = 0
@@ -277,7 +295,7 @@ class FeatureExtractor:
 
             # Keverés (Shuffle)
             print("🔀 Adatok összekeverése...")
-            df_all = df_all.sample(frac=1).reset_index(drop=True)
+            df_all = df_all.sample(frac=1, random_state=42).reset_index(drop=True)
 
             return df_all
         else:
