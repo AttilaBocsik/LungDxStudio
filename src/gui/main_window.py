@@ -300,9 +300,9 @@ def run_application():
                 dask.config.set({
                     "distributed.comm.timeouts.connect": "60s",
                     "distributed.comm.timeouts.tcp": "60s",
-                    "distributed.worker.memory.target": 0.6,
-                    "distributed.worker.memory.spill": 0.7,
-                    "distributed.worker.memory.pause": 0.8,
+                    "distributed.worker.memory.target": 0.7,
+                    "distributed.worker.memory.spill": 0.8,
+                    "distributed.worker.memory.pause": 0.85,
                     "distributed.worker.memory.terminate": 0.95
                 })
 
@@ -311,7 +311,7 @@ def run_application():
                         n_workers=1,
                         threads_per_worker=1,
                         processes=False,  # Szálak használata folyamatok helyett az overhead csökkentésére
-                        memory_limit='2GB'
+                        memory_limit='5GB'
                     )
                 except Exception as e:
                     self.write_to_log_file(f"Dask Error: {e}")
