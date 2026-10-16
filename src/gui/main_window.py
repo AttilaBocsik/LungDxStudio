@@ -309,9 +309,9 @@ def run_application():
                 try:
                     self.dask_client = Client(
                         n_workers=1,
-                        threads_per_worker=2,
-                        processes=True,
-                        memory_limit='4GB'
+                        threads_per_worker=1,
+                        processes=False,  # Szálak használata folyamatok helyett az overhead csökkentésére
+                        memory_limit='2GB'
                     )
                 except Exception as e:
                     self.write_to_log_file(f"Dask Error: {e}")
