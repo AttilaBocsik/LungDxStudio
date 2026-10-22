@@ -137,6 +137,7 @@ class XGBoostTrainer:
             log_callback(f"📦 Modell naplózása és regisztrációja a DAGsHub-ra '{model_name}' néven...")
 
             # Adatbemeneti séma (signature) automatikus kinyerése a Dask DataFrame-ből
+            # Kis minta a tanító adatokból
             input_sample = X.head(5)
             signature = mlflow.models.infer_signature(input_sample, np.zeros(5))
 
@@ -157,7 +158,7 @@ class XGBoostTrainer:
                         # Elmentjük az XGBoost boostert a DAGsHub MLflow-ba, és regisztráljuk
                         mlflow.xgboost.log_model(
                             xgb_model=booster,
-                            artifact_path="model",
+                            name="model",
                             signature=signature,
                             registered_model_name=model_name
                         )
